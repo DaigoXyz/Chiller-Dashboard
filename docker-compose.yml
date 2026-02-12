@@ -1,0 +1,5 @@
+services:
+  web:
+    build: ./sam-dashboard
+    ports:
+      - "8080:80"
