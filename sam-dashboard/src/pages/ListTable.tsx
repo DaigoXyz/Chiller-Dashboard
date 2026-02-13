@@ -19,6 +19,11 @@ export default function ErrorLogsPage() {
   const [levelFilter, setLevelFilter] = useState<string>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  const levelMap: Record<string, "INFO" | "WARN" | "ERROR"> = {
+    LOW: "INFO",
+    MEDIUM: "WARN",
+    HIGH: "ERROR",
+  };
 
   useEffect(() => {
     let alive = true;
@@ -42,7 +47,8 @@ export default function ErrorLogsPage() {
 
     // Filter by level
     if (levelFilter !== "ALL") {
-      result = result.filter((log) => log.level === levelFilter);
+      const mappedLevel = levelMap[levelFilter];
+      result = result.filter((log) => log.level === mappedLevel);
     }
 
     // Search by message or time
@@ -142,7 +148,7 @@ export default function ErrorLogsPage() {
                     Filter by Level
                   </label>
                   <div className="flex gap-2">
-                    {["ALL", "INFO", "WARN", "ERROR"].map((level) => (
+                    {["ALL", "LOW", "MEDIUM", "HIGH"].map((level) => (
                       <button
                         key={level}
                         onClick={() => setLevelFilter(level)}
