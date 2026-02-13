@@ -3,6 +3,7 @@ import { getDashboard, retryLogs } from "../api/DashboardApi";
 import type { DashboardDto, ErrorLogItemDto } from "../types/Dashboard";
 import { DeviceSyncDoughnut, PushGaugeLike, SyncSuccessStackedBar, OfflineDevicesLine } from "../components/Charts";
 import LogoutButton from "../components/Logout";
+import { Check, X, AlertTriangle, Loader2 } from "lucide-react";
 
 function logKey(l: ErrorLogItemDto) {
   return `${l.time}|${l.level}|${l.message}`;
@@ -11,6 +12,31 @@ function badgeClassLevel(level: string) {
   if (level === "INFO") return "bg-sky-500/15 text-sky-200 border-sky-500/30";
   if (level === "WARN") return "bg-amber-500/15 text-amber-200 border-amber-500/30";
   return "bg-rose-500/15 text-rose-200 border-rose-500/30";
+}
+
+// Temporary function to add pipeline status for testing
+type PipelineStatus = "success" | "failed" | "running" | "warning";
+
+function pipelineMeta(status?: PipelineStatus) {
+  switch (status) {
+    case "success":
+      return { label: "Success", cls: "bg-emerald-500/15 text-emerald-200 border-emerald-500/30" };
+    case "failed":
+      return { label: "Failed", cls: "bg-rose-500/15 text-rose-200 border-rose-500/30" };
+    case "running":
+      return { label: "Running", cls: "bg-blue-500/15 text-blue-200 border-blue-500/30" };
+    case "warning":
+      return { label: "Warning", cls: "bg-amber-500/15 text-amber-200 border-amber-500/30" };
+    default:
+      return { label: "-", cls: "bg-white/5 text-slate-400 border-white/10" };
+  }
+}
+function addPipelineStatus(logs: ErrorLogItemDto[]): (ErrorLogItemDto & { pipelineStatus: PipelineStatus })[] {
+  const statuses: PipelineStatus[] = ["failed", "warning", "running", "success"];
+  return logs.map((log, idx) => ({
+    ...log,
+    pipelineStatus: statuses[idx % statuses.length],
+  }));
 }
 
 export default function AdminDashboardPage() {
@@ -23,6 +49,10 @@ export default function AdminDashboardPage() {
     (async () => {
       try {
         const d = await getDashboard();
+        // Add pipeline status to logs for testing
+        if (d && d.errorLogs) {
+          d.errorLogs = addPipelineStatus(d.errorLogs);
+        }
         if (alive) setData(d);
       } catch {
         if (alive) setData(null);
@@ -149,7 +179,6 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            {/* Logs Preview */}
             <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="font-medium">Recent Error & Event Logs</h3>
@@ -164,7 +193,8 @@ export default function AdminDashboardPage() {
                       <th className="py-2 text-left font-medium">Time</th>
                       <th className="py-2 text-left font-medium">Level</th>
                       <th className="py-2 text-left font-medium">Message</th>
-                      <th className="w-40 py-2 text-left font-medium">Action</th>
+                      <th className="w-[280px] px-2 py-2 text-center font-medium">Pipeline</th>
+                      <th className="w-32 px-2 py-2 text-left font-medium">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -181,7 +211,70 @@ export default function AdminDashboardPage() {
                               {log.level}
                             </span>
                           </td>
-                          <td className="py-2">{log.message}</td>
+                          <td className="w-[350px] py-2 break-words">{log.message}</td>
+                          <td className="w-[350px] py-3">
+                            {/* Pipeline Flow Diagram */}
+                            <div className="flex items-center justify-center gap-1.5">
+                              {/* Build Stage */}
+                              <div className="flex flex-col items-center">
+                                <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
+                                  log.pipelineStatus === "success" ? "border-emerald-500/30 bg-emerald-500/15" :
+                                  log.pipelineStatus === "failed" ? "border-rose-500/30 bg-rose-500/15" :
+                                  log.pipelineStatus === "running" ? "border-blue-500/30 bg-blue-500/15" :
+                                  "border-amber-500/30 bg-amber-500/15"
+                                }`}>
+                                  {log.pipelineStatus === "failed" ? <X className="h-4 w-4 text-rose-200" /> :
+                                   log.pipelineStatus === "warning" ? <AlertTriangle className="h-4 w-4 text-amber-200" /> :
+                                   log.pipelineStatus === "running" ? <Loader2 className="h-4 w-4 animate-spin text-blue-200" /> :
+                                   <Check className="h-4 w-4 text-emerald-200" />}
+                                </div>
+                              </div>
+
+                              {/* Connector Line */}
+                              <div className="h-0.5 w-8 bg-white/10"></div>
+
+                              {/* Test Stage 1 */}
+                              <div className="flex flex-col items-center">
+                                <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
+                                  log.pipelineStatus === "success" ? "border-emerald-500/30 bg-emerald-500/15" :
+                                  log.pipelineStatus === "running" ? "border-blue-500/30 bg-blue-500/15" :
+                                  "border-white/10 bg-white/5"
+                                }`}>
+                                  {log.pipelineStatus === "success" ? <Check className="h-4 w-4 text-emerald-200" /> :
+                                   log.pipelineStatus === "running" ? <Loader2 className="h-4 w-4 animate-spin text-blue-200" /> :
+                                   <div className="h-2 w-2 rounded-full bg-white/20"></div>}
+                                </div>
+                              </div>
+
+                              {/* Connector Line */}
+                              <div className="h-0.5 w-8 bg-white/10"></div>
+
+                              {/* Test Stage 2 */}
+                              <div className="flex flex-col items-center">
+                                <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
+                                  log.pipelineStatus === "success" ? "border-emerald-500/30 bg-emerald-500/15" :
+                                  "border-white/10 bg-white/5"
+                                }`}>
+                                  {log.pipelineStatus === "success" ? <Check className="h-4 w-4 text-emerald-200" /> :
+                                   <div className="h-2 w-2 rounded-full bg-white/20"></div>}
+                                </div>
+                              </div>
+
+                              {/* Connector Line */}
+                              <div className="h-0.5 w-8 bg-white/10"></div>
+
+                              {/* Deploy Stage */}
+                              <div className="flex flex-col items-center">
+                                <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
+                                  log.pipelineStatus === "success" ? "border-emerald-500/30 bg-emerald-500/15" :
+                                  "border-white/10 bg-white/5"
+                                }`}>
+                                  {log.pipelineStatus === "success" ? <Check className="h-4 w-4 text-emerald-200" /> :
+                                   <div className="h-2 w-2 rounded-full bg-white/20"></div>}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
                           <td className="py-2">
                             <button
                               className="rounded-xl border border-rose-500/30 bg-rose-500/15 px-3 py-1 text-xs text-rose-200 hover:bg-rose-500/25"

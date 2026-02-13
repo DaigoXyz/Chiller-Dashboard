@@ -1,32 +1,60 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { 
-  LayoutDashboard, 
-  FileText, 
-  Menu, 
-  X 
-} from "lucide-react";
-import { useState } from "react";
-
+import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { LayoutDashboard, FileText, Menu, ChevronDown, Activity, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ dashboard: true });
+  const location = useLocation();
 
-  const navItems = [
-    {
-      path: "/admin",
-      label: "Dashboard",
-      icon: LayoutDashboard,
-    },
-    {
-      path: "/admin/logs",
-      label: "Error Logs",
-      icon: FileText,
-    },
-  ];
+  const navItems = useMemo(
+    () => [
+      {
+        key: "dashboard",
+        label: "Dashboard",
+        icon: LayoutDashboard,
+        children: [
+          { path: "/admin/monitoring", label: "SAM Monitoring", icon: Activity },
+        ],
+      },
+      {
+        key: "logs",
+        label: "Logs",
+        icon: FileText,
+        children: [
+          { path: "/admin/logs", label: "Error Logs", icon: FileText },
+        ],
+      },
+    ],
+    []
+  );
+
+  // auto-open group kalau sedang di path yang sesuai
+  useEffect(() => {
+    navItems.forEach((item) => {
+      if ("children" in item) {
+        const isActive = item.children.some((child) =>
+          location.pathname.startsWith(child.path)
+        );
+        if (isActive) {
+          setOpenGroups((p) => ({ ...p, [item.key]: true }));
+        }
+      }
+    });
+  }, [location.pathname, navItems]);
+
+  const toggleGroup = (key: string) =>
+    setOpenGroups((p) => ({ ...p, [key]: !p[key] }));
+
+  // Handler untuk klik parent saat collapsed
+  const handleCollapsedParentClick = (key: string) => {
+    setIsCollapsed(false);
+    setOpenGroups((p) => ({ ...p, [key]: true }));
+  };
 
   return (
-    <div className="flex min-h-screen bg-[#0f1623]">
-      {/* Mobile overlay */}
+    <div className="flex min-h-screen bg-slate-950">
       {isOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
@@ -34,83 +62,134 @@ export default function Sidebar() {
         />
       )}
 
-      {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 z-50 h-screen w-64 border-r border-white/10 bg-[#0b1220] transition-transform lg:translate-x-0 lg:static ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed left-0 top-0 z-50 h-screen border-r border-slate-800 bg-slate-970 transition-all duration-300 lg:static ${
+          isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        } ${isCollapsed ? "lg:w-20" : "lg:w-64"} w-64`}
       >
         <div className="flex h-full flex-col">
-          {/* Logo */}
-          <div className="flex items-center gap-3 border-b border-white/10 p-6">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 border border-white/10 font-bold text-white">
-              S
-            </div>
-            <div>
-              <h2 className="font-semibold text-white">SAM Monitor</h2>
-              <p className="text-xs text-slate-400">v1.0.0</p>
-            </div>
+          {/* Header/Logo */}
+          <div className={`border-b border-slate-800 py-5 flex items-center transition-all duration-300 ${
+            isCollapsed ? "px-0 justify-center" : "px-6 justify-between"
+          }`}>
+            {!isCollapsed && <h2 className="text-xl font-bold text-slate-50">SAM Dashboard</h2>}
+            
+            {/* Toggle button untuk desktop */}
             <button
-              onClick={() => setIsOpen(false)}
-              className="ml-auto lg:hidden"
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="hidden lg:flex rounded-lg p-1.5 hover:bg-slate-800 text-slate-400 hover:text-slate-50 transition-colors"
             >
-              <X className="h-5 w-5 text-white" />
+              {isCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
             </button>
           </div>
 
-          {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto p-4">
-            <div className="space-y-1">
-              {navItems.map((item) => (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  end={item.path === "/admin"}
-                  onClick={() => setIsOpen(false)}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
-                      isActive
-                        ? "bg-blue-600 text-white"
-                        : "text-white hover:bg-white/10"
-                    }`
-                  }
-                >
-                  <item.icon className="h-5 w-5" />
-                  {item.label}
-                </NavLink>
-              ))}
+          <nav className="flex-1 overflow-y-auto px-3 py-4">
+            <div className="space-y-2">
+              {navItems.map((item) => {
+                const groupOpen = !!openGroups[item.key];
+                const GroupIcon = item.icon;
+                const isActiveGroup = item.children.some((child) =>
+                  location.pathname.startsWith(child.path)
+                );
+
+                return (
+                  <div key={item.key}>
+                    {!isCollapsed ? (
+                      <>
+                        {/* Parent Button - Normal state */}
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(item.key)}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all text-slate-200 bg-slate-900/40 hover:bg-blue-900/30"
+                        >
+                          <GroupIcon className="h-4 w-4 flex-shrink-0" />
+                          <span className="flex-1 text-left">{item.label}</span>
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                              groupOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+
+                        {/* Children - Normal state */}
+                        {groupOpen && (
+                          <div className="mt-1 space-y-0.5 pl-4">
+                            {item.children.map((child) => {
+                              const ChildIcon = child.icon;
+                              return (
+                                <NavLink
+                                  key={child.path}
+                                  to={child.path}
+                                  onClick={() => setIsOpen(false)}
+                                  className={({ isActive }) =>
+                                    `flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all ${
+                                      isActive
+                                        ? "bg-slate-800 text-slate-50 font-medium"
+                                        : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+                                    }`
+                                  }
+                                >
+                                  <ChildIcon className="h-4 w-4" />
+                                  {child.label}
+                                </NavLink>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {/* Collapsed state - parent icon aja */}
+                        <button
+                          type="button"
+                          onClick={() => handleCollapsedParentClick(item.key)}
+                          title={item.label}
+                          className={`flex w-full items-center justify-center rounded-lg p-3 transition-all ${
+                            isActiveGroup
+                              ? "bg-slate-800 text-slate-50"
+                              : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+                          }`}
+                        >
+                          <GroupIcon className="h-5 w-5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </nav>
 
           {/* Footer */}
-          <div className="border-t border-white/10 p-4">
-            <div className="rounded-xl bg-white/5 p-3 text-xs">
-              <p className="font-medium text-white">System Status</p>
-              <div className="mt-2 flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-white">All systems operational</span>
+          {!isCollapsed ? (
+            <div className="border-t border-slate-800 p-4">
+              <div className="rounded-lg bg-slate-800/50 px-3 py-2.5">
+                <p className="text-xs font-medium text-slate-300">System Status</p>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-xs text-slate-400">All systems operational</span>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="border-t border-slate-800 p-4 flex justify-center">
+              <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            </div>
+          )}
         </div>
       </aside>
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-h-screen">
-        {/* Mobile header */}
-        <div className="sticky top-0 z-30 flex items-center gap-4 border-b border-white/10 bg-[#0b1220]/80 backdrop-blur-sm p-4 lg:hidden">
-          <button
-            onClick={() => setIsOpen(true)}
-            className="rounded-lg p-2 hover:bg-white/5"
-          >
-            <Menu className="h-6 w-6 text-white" />
+        <div className="sticky top-0 z-30 flex items-center gap-4 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm p-4 lg:hidden">
+          <button onClick={() => setIsOpen(true)} className="rounded-lg p-2 hover:bg-slate-800">
+            <Menu className="h-6 w-6 text-slate-50" />
           </button>
-          <h1 className="font-semibold text-white">SAM Monitoring</h1>
+          <h1 className="font-semibold text-slate-50">SAM Monitoring</h1>
         </div>
 
-        {/* Page content */}
         <main className="flex-1">
-        <Outlet />
+          <Outlet />
         </main>
       </div>
     </div>

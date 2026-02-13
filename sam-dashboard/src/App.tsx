@@ -12,9 +12,11 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
 
       <Route element={<ProtectedRoute />}>
-        <Route element={<Sidebar />}>
-          <Route path="/admin" element={<AdminDashboardPage />} />
-          <Route path="/admin/logs" element={<ErrorLogsPage />} />
+        <Route path="/admin" element={<Sidebar />}>
+          <Route index element={<Navigate to="monitoring" replace />} />
+          <Route path="monitoring" element={<AdminDashboardPage />} />
+          <Route path="logs" element={<ErrorLogsPage />} />
+          <Route path="*" element={<Navigate to="monitoring" replace />} />
         </Route>
       </Route>
 
