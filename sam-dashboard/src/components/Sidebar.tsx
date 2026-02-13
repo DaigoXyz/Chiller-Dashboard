@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, FileText, Menu, ChevronDown, Activity, ChevronLeft, ChevronRight } from "lucide-react";
+import { LayoutDashboard, Briefcase, BriefcaseBusiness, Menu, ChevronDown, Activity, ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 export default function Sidebar() {
@@ -19,11 +19,12 @@ export default function Sidebar() {
         ],
       },
       {
-        key: "logs",
-        label: "Logs",
-        icon: FileText,
+        key: "workers",
+        label: "Workers",
+        icon: BriefcaseBusiness,
         children: [
-          { path: "/admin/logs", label: "Error Logs", icon: FileText },
+          { path: "/admin/logs", label: "Publisher Worker", icon: Briefcase },
+          { path: "/admin/woi", label: "Etl Worker", icon: Briefcase },
         ],
       },
     ],

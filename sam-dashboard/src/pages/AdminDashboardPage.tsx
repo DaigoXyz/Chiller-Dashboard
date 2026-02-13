@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { getDashboard, retryLogs } from "../api/DashboardApi";
 import type { DashboardDto, ErrorLogItemDto } from "../types/Dashboard";
-import { DeviceSyncDoughnut, PushGaugeLike, SyncSuccessStackedBar, OfflineDevicesLine } from "../components/Charts";
-import LogoutButton from "../components/Logout";
+import { DeviceSyncDoughnut, PushGaugeLike, SyncSuccessStackedBar, OfflineDevicesLine, OfflineDevicesPie, ThroughputGauge } from "../components/Charts";
+import Navbar from "../components/Navbar";
 import { Check, X, AlertTriangle, Loader2 } from "lucide-react";
 
 function logKey(l: ErrorLogItemDto) {
@@ -17,20 +17,20 @@ function badgeClassLevel(level: string) {
 // Temporary function to add pipeline status for testing
 type PipelineStatus = "success" | "failed" | "running" | "warning";
 
-function pipelineMeta(status?: PipelineStatus) {
-  switch (status) {
-    case "success":
-      return { label: "Success", cls: "bg-emerald-500/15 text-emerald-200 border-emerald-500/30" };
-    case "failed":
-      return { label: "Failed", cls: "bg-rose-500/15 text-rose-200 border-rose-500/30" };
-    case "running":
-      return { label: "Running", cls: "bg-blue-500/15 text-blue-200 border-blue-500/30" };
-    case "warning":
-      return { label: "Warning", cls: "bg-amber-500/15 text-amber-200 border-amber-500/30" };
-    default:
-      return { label: "-", cls: "bg-white/5 text-slate-400 border-white/10" };
-  }
-}
+// function pipelineMeta(status?: PipelineStatus) {
+//   switch (status) {
+//     case "success":
+//       return { label: "Success", cls: "bg-emerald-500/15 text-emerald-200 border-emerald-500/30" };
+//     case "failed":
+//       return { label: "Failed", cls: "bg-rose-500/15 text-rose-200 border-rose-500/30" };
+//     case "running":
+//       return { label: "Running", cls: "bg-blue-500/15 text-blue-200 border-blue-500/30" };
+//     case "warning":
+//       return { label: "Warning", cls: "bg-amber-500/15 text-amber-200 border-amber-500/30" };
+//     default:
+//       return { label: "-", cls: "bg-white/5 text-slate-400 border-white/10" };
+//   }
+// }
 function addPipelineStatus(logs: ErrorLogItemDto[]): (ErrorLogItemDto & { pipelineStatus: PipelineStatus })[] {
   const statuses: PipelineStatus[] = ["failed", "warning", "running", "success"];
   return logs.map((log, idx) => ({
@@ -43,11 +43,22 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DashboardDto | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  
+  // Initialize with last 7 days
+  const today = new Date();
+  const weekAgo = new Date(today);
+  weekAgo.setDate(today.getDate() - 7);
+  
+  const [dateRange, setDateRange] = useState({
+    start: weekAgo.toISOString().split('T')[0],
+    end: today.toISOString().split('T')[0]
+  });
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
+        // TODO: Pass dateRange to API when backend supports it
         const d = await getDashboard();
         // Add pipeline status to logs for testing
         if (d && d.errorLogs) {
@@ -61,7 +72,7 @@ export default function AdminDashboardPage() {
       }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [dateRange]); // Re-fetch when date range changes
 
   const visibleLogs = useMemo(() => (data?.errorLogs ?? []).slice(0, 4), [data]);
   const allChecked = visibleLogs.length > 0 && visibleLogs.every((l) => selected.has(logKey(l)));
@@ -119,14 +130,8 @@ export default function AdminDashboardPage() {
 
         {!loading && data && (
           <>
-            {/* Header */}
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold">Dashboard Overview</h2>
-                <p className="mt-1 text-sm text-slate-400">Real-time monitoring and analytics</p>
-              </div>
-              <LogoutButton />
-            </div>
+            {/* Navbar with Filter */}
+            <Navbar selectedDateRange={dateRange} onDateRangeChange={setDateRange} />
 
             {/* Metrics row */}
             <div className="grid gap-4 md:grid-cols-4">
@@ -148,16 +153,16 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-sm text-slate-400">Active Offline Devices</div>
-                <div className="mt-3 text-4xl font-semibold text-amber-200">
-                  {data.metrics.activeOfflineDevices}
+                <div className="text-sm text-slate-400">Total Collection Firestore</div>
+                <div className="mt-3 h-28">
+                  <OfflineDevicesPie {...data.offlineDevicesPie} />
                 </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-sm text-slate-400">Order Price Anomalies</div>
-                <div className="mt-3 text-4xl font-semibold text-rose-200">
-                  {data.metrics.priceAnomalies}
+                <div className="text-sm text-slate-400">Total Average Throughput Push Data</div>
+                <div className="mt-3 h-32">
+                  <ThroughputGauge value={data.metrics.priceAnomalies} max={10} />
                 </div>
               </div>
             </div>
@@ -165,14 +170,14 @@ export default function AdminDashboardPage() {
             {/* Charts row */}
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-2 font-medium">Sync Success Rate</div>
+                <div className="mb-2 font-medium">Push Rate</div>
                 <div className="h-64">
                   <SyncSuccessStackedBar {...data.syncSuccessSeries} />
                 </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="mb-2 font-medium">Offline Devices</div>
+                <div className="mb-2 font-medium">Pull Data</div>
                 <div className="h-64">
                   <OfflineDevicesLine {...data.offlineDevicesSeries} />
                 </div>

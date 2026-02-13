@@ -16,7 +16,6 @@ export default function App() {
           <Route index element={<Navigate to="monitoring" replace />} />
           <Route path="monitoring" element={<AdminDashboardPage />} />
           <Route path="logs" element={<ErrorLogsPage />} />
-          <Route path="*" element={<Navigate to="monitoring" replace />} />
         </Route>
       </Route>
 

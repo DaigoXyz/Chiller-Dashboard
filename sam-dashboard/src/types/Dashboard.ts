@@ -8,24 +8,35 @@ export type ErrorLogItemDto = {
 export type DashboardDto = {
   metrics: {
     pushSuccessRate: number;
-    activeOfflineDevices: number;
+    activeOfflineDevices: number; // masih boleh dipakai sebagai total (optional)
     priceAnomalies: number;
   };
+
   deviceSyncPie: {
     upToDate: number;
     failed: number;
     outdated: number;
   };
+
+  // ✅ NEW (opsi B)
+  offlineDevicesPie: {
+    shortOffline: number;   // contoh: < 15 menit
+    mediumOffline: number;  // 15–60 menit
+    longOffline: number;    // > 60 menit
+  };
+
   syncSuccessSeries: {
     labels: string[];
     success: number[];
     failed: number[];
     delayed: number[];
   };
+
   offlineDevicesSeries: {
     labels: string[];
     counts: number[];
   };
+
   syncStatus: {
     sales: string;
     device: string;
@@ -35,6 +46,7 @@ export type DashboardDto = {
     lastSync: string;
     status: "OK" | "OUTDATED" | "FAILED";
   }[];
+
   orderAnomalies: {
     orderId: string;
     sales: string;
@@ -42,5 +54,6 @@ export type DashboardDto = {
     priceVer: string;
     masterVer: string;
   }[];
+
   errorLogs: ErrorLogItemDto[];
 };

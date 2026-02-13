@@ -6,7 +6,7 @@ import {
   BarElement,
   Filler,
 } from "chart.js";
-import { Doughnut, Bar, Line } from "react-chartjs-2";
+import { Doughnut, Bar, Line, Pie } from "react-chartjs-2";
 
 ChartJS.register(
   ArcElement, Tooltip, Legend,
@@ -46,7 +46,51 @@ export function DeviceSyncDoughnut(props: { upToDate: number; failed: number; ou
       options={{
         responsive: true,
         maintainAspectRatio: false,
-        cutout: "65%",
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            backgroundColor: "rgba(15, 23, 42, 0.95)",
+            titleColor: "rgba(226, 232, 240, 1)",
+            bodyColor: "rgba(203, 213, 225, 1)",
+            borderColor: "rgba(148, 163, 184, 0.3)",
+            borderWidth: 1,
+            padding: 12,
+            displayColors: true,
+            boxWidth: 8,
+            boxHeight: 8,
+            usePointStyle: true,
+          }
+        }
+      }}
+    />
+  );
+}
+
+export function OfflineDevicesPie(props: { shortOffline: number; mediumOffline: number; longOffline: number }) {
+  return (
+    <Pie
+      data={{
+        labels: ["Short Offline", "Medium Offline", "Long Offline"],
+        datasets: [{
+          data: [props.shortOffline, props.mediumOffline, props.longOffline],
+          backgroundColor: [
+            "rgba(14, 165, 233, 0.9)",   // sky blue - short
+            "rgba(251, 191, 36, 0.9)",   // amber - medium
+            "rgba(239, 68, 68, 0.9)",    // red - long
+          ],
+          borderColor: [
+            "rgba(14, 165, 233, 1)",
+            "rgba(251, 191, 36, 1)",
+            "rgba(239, 68, 68, 1)",
+          ],
+          borderWidth: 2,
+        }]
+      }}
+      options={{
+        responsive: true,
+        maintainAspectRatio: false,
         plugins: {
           legend: {
             display: false
@@ -108,6 +152,96 @@ export function PushGaugeLike(props: { valuePercent: number }) {
         }
       }}
     />
+  );
+}
+
+export function ThroughputGauge(props: { value: number; max?: number }) {
+  const maxValue = props.max || 100;
+  const percentage = Math.max(0, Math.min(100, (props.value / maxValue) * 100));
+  
+  // Calculate rotation angle for the needle (180 degrees span)
+  const needleAngle = -90 + (percentage * 1.8); // -90 to 90 degrees
+  
+  return (
+    <div className="relative h-full w-full flex items-center justify-center">
+      <Doughnut
+        data={{
+          labels: ["Low", "Medium", "High"],
+          datasets: [{
+            data: [33.33, 33.33, 33.34], // Equal segments
+            backgroundColor: [
+              "rgba(239, 68, 68, 0.85)",    // Red - Low (0-33%)
+              "rgba(251, 191, 36, 0.85)",   // Yellow - Medium (34-66%)
+              "rgba(16, 185, 129, 0.85)",   // Green - High (67-100%)
+            ],
+            borderColor: [
+              "rgba(239, 68, 68, 1)",
+              "rgba(251, 191, 36, 1)",
+              "rgba(16, 185, 129, 1)",
+            ],
+            borderWidth: 3,
+          }]
+        }}
+        options={{
+          responsive: true,
+          maintainAspectRatio: false,
+          circumference: 180,
+          rotation: 270,
+          cutout: "70%",
+          plugins: {
+            legend: { display: false },
+            tooltip: { enabled: false }
+          }
+        }}
+      />
+      
+      {/* Needle - redesigned for better visibility */}
+      <div 
+        className="absolute"
+        style={{
+          bottom: '22%',
+          left: '50%',
+          width: '4px',
+          height: '40%',
+          transformOrigin: 'bottom center',
+          transform: `translateX(-50%) rotate(${needleAngle}deg)`,
+          transition: 'transform 0.6s cubic-bezier(0.4, 0.0, 0.2, 1)',
+        }}
+      >
+        {/* Main needle body - gradient for depth */}
+        <div className="absolute inset-0 bg-gradient-to-t from-red-600 via-red-500 to-red-400 rounded-full shadow-lg" />
+        
+        {/* Needle glow effect */}
+        <div className="absolute inset-0 bg-red-400 rounded-full blur-sm opacity-50" />
+        
+        {/* Sharp tip */}
+        <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[12px] border-b-red-500" />
+      </div>
+      
+      {/* Center pivot - larger and more visible */}
+      <div className="absolute" style={{ bottom: '10%', left: '54%', transform: 'translate(-50%, 0)' }}>
+        {/* Outer glow */}
+        <div className="absolute inset-0 w-6 h-6 -translate-x-1/2 -translate-y-1/2 bg-red-500/30 rounded-full blur-md" />
+        {/* Main circle */}
+        <div className="relative w-5 h-5 -translate-x-1/2 -translate-y-1/2 bg-gradient-to-br from-slate-700 to-slate-900 rounded-full border-2 border-red-500/50 shadow-xl" />
+      </div>
+      
+      {/* Value display - improved typography */}
+      <div className="absolute bottom-[2%] left-1/2 -translate-x-1/2 text-center">
+        <div className="text-3xl font-bold text-white tracking-tight">{props.value}</div>
+        <div className="text-xs text-slate-400 font-medium mt-0.5">Req/Min</div>
+      </div>
+      
+      {/* Scale markers */}
+      <div className="absolute inset-0">
+        {/* 0% marker */}
+        <div className="absolute text-[10px] font-semibold text-red-400" style={{ bottom: '20%', left: '8%' }}>0</div>
+        {/* 50% marker */}
+        <div className="absolute text-[10px] font-semibold text-amber-400" style={{ bottom: '52%', left: '50%', transform: 'translateX(-50%)' }}>{Math.round(maxValue / 2)}</div>
+        {/* 100% marker */}
+        <div className="absolute text-[10px] font-semibold text-emerald-400" style={{ bottom: '20%', right: '8%' }}>{maxValue}</div>
+      </div>
+    </div>
   );
 }
 
@@ -247,7 +381,7 @@ export function OfflineDevicesLine(props: { labels: string[]; counts: number[] }
       data={{
         labels: props.labels,
         datasets: [{
-          label: "Offline Devices",
+          label: "Pull Data",
           data: props.counts,
           backgroundColor: backgroundColors,
           borderColor: borderColors,
