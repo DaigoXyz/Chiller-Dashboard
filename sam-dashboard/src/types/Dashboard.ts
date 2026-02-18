@@ -8,7 +8,7 @@ export type ErrorLogItemDto = {
 export type DashboardDto = {
   metrics: {
     pushSuccessRate: number;
-    activeOfflineDevices: number; // masih boleh dipakai sebagai total (optional)
+    activeOfflineDevices: number;
     priceAnomalies: number;
   };
 
@@ -18,7 +18,6 @@ export type DashboardDto = {
     outdated: number;
   };
 
-  // ✅ NEW (opsi B)
   offlineDevicesPie: {
     shortOffline: number;   // contoh: < 15 menit
     mediumOffline: number;  // 15–60 menit

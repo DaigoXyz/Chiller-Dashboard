@@ -6,7 +6,8 @@ import {
   BarElement,
   Filler,
 } from "chart.js";
-import { Doughnut, Bar, Line, Pie } from "react-chartjs-2";
+
+import { Doughnut, Bar, Line, Pie, Scatter } from "react-chartjs-2";
 
 ChartJS.register(
   ArcElement, Tooltip, Legend,
@@ -22,6 +23,386 @@ ChartJS.defaults.plugins.legend.labels.boxWidth = 10;
 ChartJS.defaults.plugins.legend.labels.boxHeight = 10;
 ChartJS.defaults.plugins.legend.labels.usePointStyle = true;
 ChartJS.defaults.plugins.legend.labels.font = { size: 11 };
+
+ChartJS.register(LinearScale, PointElement, LineElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+
+export function CollectionFullListScroll({ items }: { items: any[] }) {
+  const sortedItems = [...items].sort((a, b) => {
+    const aStatus = a.failed > 0 ? 2 : (a.inProgress > 0 ? 1 : 0);
+    const bStatus = b.failed > 0 ? 2 : (b.inProgress > 0 ? 1 : 0);
+    if (aStatus !== bStatus) return bStatus - aStatus;
+    return a.name.localeCompare(b.name);
+  });
+
+  const chartData = {
+    labels: sortedItems.map(item => item.name),
+    datasets: [
+      {
+        data: sortedItems.map(item => item.success + item.failed + item.inProgress),
+        backgroundColor: sortedItems.map(item => {
+          if (item.failed > 0) return '#fa1b40';
+          if (item.inProgress > 0) return 'rgba(251, 191, 36, 0.9)';
+          return 'rgba(0, 255, 170, 0.85)';
+        }),
+        borderRadius: 2,
+        barThickness: 8,
+      },
+    ],
+  };
+
+  const textLabelsPlugin = {
+    id: 'textLabelsPlugin',
+    afterDatasetsDraw(chart: any) {
+      const { ctx } = chart;
+      
+      ctx.save();
+      // Gunakan font yang sedikit lebih kontras dan ukuran pas
+      ctx.font = 'bold 9px "JetBrains Mono", monospace'; 
+      ctx.textBaseline = 'middle';
+
+      chart.getDatasetMeta(0).data.forEach((bar: any, i: number) => {
+        const item = sortedItems[i];
+        
+        // Susun teks info
+        const text = `S:${item.success} F:${item.failed} P:${item.inProgress}`;
+        
+        // Tentukan warna teks berdasarkan status biar makin jelas
+        // Kalau failed > 0, kasih warna merah pucat biar kelihatan
+        ctx.fillStyle = item.failed > 0 ? '#fda4af' : '#94a3b8';
+
+        // OFFSET LOGIC:
+        // Kita gambar teks di koordinat X ujung bar + 5px
+        // Kalau bar-nya kepanjangan banget, kita taruh teksnya DI DALAM bar (ujung kanan)
+        const chartWidth = chart.width;
+        const textWidth = ctx.measureText(text).width;
+        
+        let xPos = bar.x + 5;
+        
+        // Cek kalau teksnya bakal keluar dari layar/canvas
+        if (xPos + textWidth > chartWidth - 10) {
+          xPos = bar.x - textWidth - 5; // Pindahin ke dalem bar
+          ctx.fillStyle = '#fff'; // Putih biar kontras di dalem bar
+        }
+
+        ctx.fillText(text, xPos, bar.y);
+      });
+      ctx.restore();
+    }
+  };
+
+  const options = {
+    indexAxis: 'y' as const,
+    responsive: true,
+    maintainAspectRatio: false,
+    layout: {
+      padding: {
+        right: 80 // Kasih space luas di kanan biar teks S F P nggak kepotong
+      }
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: { 
+        enabled: true, // Ini buat nyalain/matiin popup hover
+        callbacks: {
+          // Ini fungsi buat custom tulisan di dalam popupnya
+          label: (context: any) => {
+            const item = sortedItems[context.dataIndex];
+            const total = item.success + item.failed + item.inProgress;
+            const rate = total > 0 ? ((item.success / total) * 100).toFixed(2) : "0.00";
+            
+            // Return array string ini bakal jadi baris-baris teks di popup
+            return [
+              `Total: ${total} records`,
+              ` Success: ${item.success}`,
+              ` In Progress: ${item.inProgress}`,
+              ` Failed: ${item.failed}`,
+              ` Success Rate: ${rate}%`
+            ];
+          }
+        }
+      }
+    },
+    scales: {
+      x: { display: false },
+      y: {
+        grid: { display: false },
+        ticks: { color: '#94a3b8', font: { size: 9 }, autoSkip: false }
+      }
+    }
+  };
+
+  return (
+    <div className="h-[140px] overflow-y-auto pr-1 custom-scrollbar">
+      <div style={{ height: `${items.length * 24}px` }}>
+        {/* Masukkan plugin custom ke dalam prop plugins */}
+        <Bar 
+          data={chartData} 
+          options={options as any} 
+          plugins={[textLabelsPlugin]} 
+        />
+      </div>
+    </div>
+  );
+}
+
+export function CollectionScatterChart({ items }: { items: any[] }) {
+  const jitteredData = items.map((item) => {
+    const total = item.success + item.failed + item.inProgress || 0;
+    const successRate = total > 0 ? (item.success / total) * 100 : 0;
+    
+    return {
+      x: total,
+      y: successRate === 100 
+        ? 100 - (Math.random() * 3) 
+        : successRate + (Math.random() * 2 - 1),
+      name: item.name,
+      actualY: successRate,
+      failed: item.failed,
+      inProgress: item.inProgress,
+      // Tambahkan status buat bantu pewarnaan
+      status: item.failed > 0 ? 'error' : (item.inProgress > 0 ? 'running' : 'ok')
+    };
+  });
+
+  const chartData = {
+    datasets: [
+      {
+        label: 'Collections Health',
+        data: jitteredData, 
+        backgroundColor: (context: any) => {
+          const d = context.raw;
+          if (!d) return 'rgba(16, 185, 129, 0.5)';
+          
+          // LOGIKA 3 WARNA
+          if (d.status === 'error') return '#fa1b40'; // Merah
+          if (d.status === 'running') return 'rgba(251, 191, 36, 1)'; // Kuning Amber
+          return 'rgba(0, 255, 170, 0.6)'; // Hijau Neon
+        },
+        pointRadius: 6,
+        pointHoverRadius: 9,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.2)'
+      },
+    ],
+  };
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    layout: { padding: { top: 10, right: 20, left: 10, bottom: 10 } },
+    scales: {
+      x: {
+        type: 'linear',
+        // Kasih sedikit ruang negatif supaya titik 0 punya napas
+        min: -2, 
+        grace: '5%',
+        title: { 
+          display: true, 
+          text: 'Total Records', 
+          color: '#64748b', 
+          font: { size: 10 } 
+        },
+        grid: { 
+          color: 'rgba(255, 255, 255, 0.03)',
+          drawBorder: false, 
+        },
+        ticks: { 
+          color: '#64748b',
+          callback: function(value: any) {
+            return value >= 0 ? value : '';
+          }
+        }
+      },
+      y: {
+        min: -5, 
+        max: 105, 
+        title: { display: true, text: 'Success Rate (%)', color: '#64748b', font: { size: 10 } },
+        grid: { color: 'rgba(255, 255, 255, 0.03)' },
+        ticks: { 
+          color: '#64748b',
+          callback: (value: any) => (value >= 0 && value <= 100) ? value + '%' : ''
+        }
+      },
+    },
+    plugins: {
+      tooltip: {
+        backgroundColor: '#0f172a',
+        titleColor: '#f1f5f9',
+        bodyColor: '#cbd5e1',
+        borderColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1,
+        padding: 12,
+        callbacks: {
+          label: (context: any) => {
+            const d = context.raw;
+            return [
+              `Collection: ${d.name}`,
+              ` Success: ${d.actualY.toFixed(2)}%`,
+              ` In Progress: ${d.inProgress}`,
+              ` Failed: ${d.failed}`,
+              ` Total: ${d.x} Records`
+            ];
+          }
+        }
+      },
+      legend: { display: false }
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-2xl">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-widest">Total Collection Firestore Scatter</h3>
+        <div className="flex gap-3 items-center">
+            <div className="flex items-center gap-1 text-[9px] text-slate-400">
+                <span className="w-2 h-2 rounded-full bg-[#fa1b40]"></span> Failed
+            </div>
+            <div className="flex items-center gap-1 text-[9px] text-slate-400">
+                <span className="w-2 h-2 rounded-full bg-[rgba(251,191,36,1)]"></span> Syncing
+            </div>
+            <div className="flex items-center gap-1 text-[9px] text-slate-400">
+                <span className="w-2 h-2 rounded-full bg-[rgba(0,255,170,1)]"></span> Healthy
+            </div>
+        </div>
+      </div>
+      <div className="h-80">
+        <Scatter data={chartData} options={options as any} />
+      </div>
+    </div>
+  );
+}
+
+export function FullCollectionHealthGrid({ items }: { items: any[] }) {
+  // Sort supaya posisi konsisten (A-Z)
+  const sortedItems = [...items].sort((a, b) => a.name.localeCompare(b.name));
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-medium text-slate-200">Total Collection Firestore Heatmap</h3>
+          <p className="text-xs text-slate-500">Real-time status of all 71 system pipelines</p>
+        </div>
+        <div className="flex gap-4 text-[10px] font-semibold uppercase tracking-widest">
+          <span className="flex items-center gap-1.5 text-emerald-400">● Healthy</span>
+          <span className="flex items-center gap-1.5 text-rose-500">● Error</span>
+        </div>
+      </div>
+
+      {/* Grid 71 Kotak - Tampil semua tanpa filter */}
+      <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-2">
+        {sortedItems.map((item, idx) => {
+          const isFailed = item.failed > 0;
+          const isInProgress = item.inProgress > 0;
+          
+          // Logika Inisial: Ambil 2 huruf (Misal: visit_config -> VC, route -> RO)
+          const nameParts = item.name.split('_');
+          const initial = nameParts.length > 1 
+            ? (nameParts[0][0] + nameParts[1][0]).toUpperCase()
+            : item.name.substring(0, 2).toUpperCase();
+
+          // Hitung Success Rate secara manual atau dari data SQL
+          const total = item.success + item.failed + item.inProgress || 0;
+          const successRate = total > 0 ? ((item.success / total) * 100).toFixed(2) : "0.00";
+
+          return (
+            <div key={idx} className="group relative">
+              <div
+                className={`h-10 w-full rounded-md border flex items-center justify-center transition-all cursor-help
+                  ${isFailed ? "bg-rose-500 border-rose-400 animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.3)]" : 
+                    isInProgress ? "bg-amber-500 border-amber-400" : 
+                    "bg-emerald-500/10 border-emerald-500/30 hover:border-emerald-400"}`}
+              >
+                <span className={`text-[10px] font-bold ${isFailed || isInProgress ? "text-white" : "text-emerald-400/70"}`}>
+                  {initial}
+                </span>
+
+                {/* Tooltip Detil (Total Records & Success Rate) */}
+                <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 w-52 -translate-x-1/2 scale-0 transition-all group-hover:scale-100 z-[100]">
+                  <div className="rounded-lg border border-white/20 bg-slate-950 p-3 shadow-2xl text-[11px] text-slate-200">
+                    <div className="mb-2 border-b border-white/10 pb-1 flex justify-between items-center">
+                       <span className="font-bold text-white truncate mr-2">{item.name}</span>
+                       <span className={`text-[9px] px-1 rounded ${isFailed ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                         {isFailed ? 'ERROR' : 'OK'}
+                       </span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Total Records:</span> 
+                        <span className="font-mono text-white">{total}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Success Rate:</span> 
+                        <span className={`font-mono font-bold ${Number(successRate) < 100 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          {successRate}%
+                        </span>
+                      </div>
+                      <div className="mt-2 pt-1 flex gap-1 items-center justify-center border-t border-white/5">
+                        <span className="text-emerald-500">S:{item.success}</span>
+                        <span className="text-slate-600">|</span>
+                        <span className="text-amber-500">P:{item.inProgress}</span>
+                        <span className="text-slate-600">|</span>
+                        <span className="text-rose-500">F:{item.failed}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Arrow tooltip */}
+                  <div className="mx-auto -mt-1 h-2 w-2 rotate-45 border-b border-r border-white/20 bg-slate-950"></div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export function CollectionHealthHeatmapMini({ items }: { items: any[] }) {
+  return (
+    <div className="h-full w-full">
+      {/* Grid Container: 10 kolom agar pas di box kecil */}
+      <div className="grid grid-cols-10 gap-1">
+        {items.map((item, idx) => {
+          // Logika Warna
+          let bgClass = "bg-emerald-500/40"; // Default Sukses (Transparan dikit biar elegan)
+          let borderClass = "border-emerald-500/50";
+          
+          if (item.failed > 0) {
+            bgClass = "bg-rose-500 animate-pulse"; 
+            borderClass = "border-rose-400";
+          } else if (item.inProgress > 0) {
+            bgClass = "bg-amber-500";
+            borderClass = "border-amber-400";
+          }
+
+          return (
+            <div
+              key={idx}
+              className={`group relative h-3 w-full rounded-[2px] border ${bgClass} ${borderClass} cursor-help transition-transform hover:scale-150 hover:z-50`}
+            >
+              {/* Tooltip Floating */}
+              <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-40 scale-0 group-hover:scale-100 transition-all z-[100]">
+                <div className="bg-slate-900 border border-white/20 p-2 rounded shadow-2xl text-[10px] text-white">
+                  <p className="font-bold border-b border-white/10 mb-1 truncate">{item.name}</p>
+                  <div className="flex justify-between"><span>Success:</span> <span>{item.success}</span></div>
+                  {item.failed > 0 && <div className="flex justify-between text-rose-400"><span>Failed:</span> <span>{item.failed}</span></div>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex justify-between text-[9px] text-slate-500 italic">
+        <span>71 Collections</span>
+        <span className="flex gap-2">
+          <span className="text-emerald-400">● OK</span>
+          <span className="text-rose-400">● Error</span>
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export function DeviceSyncDoughnut(props: { upToDate: number; failed: number; outdated: number }) {
   return (

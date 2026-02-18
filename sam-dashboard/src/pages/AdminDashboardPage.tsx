@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { getDashboard, retryLogs } from "../api/DashboardApi";
 import type { DashboardDto, ErrorLogItemDto } from "../types/Dashboard";
-import { DeviceSyncDoughnut, PushGaugeLike, SyncSuccessStackedBar, OfflineDevicesLine, OfflineDevicesPie, ThroughputGauge } from "../components/Charts";
+import { DeviceSyncDoughnut, PushGaugeLike, SyncSuccessStackedBar, OfflineDevicesLine, ThroughputGauge, OfflineDevicesPie, } from "../components/Charts";
+import { CollectionTableList } from "../components/Table";
 import Navbar from "../components/Navbar";
 import { Check, X, AlertTriangle, Loader2 } from "lucide-react";
 
@@ -43,7 +44,27 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DashboardDto | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const dummyCollections = useMemo(() => {
+  const collections = [
+    "route", "salesman", "store", "survey", "survey_item", "visit_config_customer", "order", "inventory", 
+    "customer", "promotion", "asset", "competitor", "tracking", "attendance", "expense"
+  ];
   
+  return Array.from({ length: 71 }).map((_, i) => {
+    const name = collections[i % collections.length] + `_${i}`;
+    // Bikin beberapa data random gagal biar heatmapnya berwarna
+    const failed = Math.random() > 0.9 ? Math.floor(Math.random() * 5) : 0;
+    const inProgress = Math.random() > 0.8 ? Math.floor(Math.random() * 3) : 0;
+    
+    return {
+      name,
+      success: Math.floor(Math.random() * 100),
+      failed,
+      inProgress
+    };
+  });
+}, []);
+
   // Initialize with last 7 days
   const today = new Date();
   const weekAgo = new Date(today);
@@ -168,6 +189,7 @@ export default function AdminDashboardPage() {
             </div>
 
             {/* Charts row */}
+
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <div className="mb-2 font-medium">Push Rate</div>
@@ -183,6 +205,8 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             </div>
+            
+            <CollectionTableList items={dummyCollections} />
 
             <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -294,7 +318,6 @@ export default function AdminDashboardPage() {
                   </tbody>
                 </table>
               </div>
-
               {selected.size > 0 && (
                 <div className="mt-3 flex justify-end">
                   <button

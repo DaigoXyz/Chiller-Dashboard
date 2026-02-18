@@ -6,12 +6,11 @@ const http = axios.create({
 });
 
 export async function getDashboard(): Promise<DashboardDto> {
-  // Ambil list (array) dan pakai item pertama
   const res = await http.get<any>("/dashboard");
+  
   const raw = Array.isArray(res.data) ? res.data[0] : res.data;
 
   if (!raw?.metrics) {
-    // biar gampang debug
     console.error("Dashboard response:", res.data);
     throw new Error("Invalid dashboard shape: metrics missing");
   }

@@ -31,7 +31,6 @@ export default function Sidebar() {
     []
   );
 
-  // auto-open group kalau sedang di path yang sesuai
   useEffect(() => {
     navItems.forEach((item) => {
       if ("children" in item) {
@@ -48,14 +47,13 @@ export default function Sidebar() {
   const toggleGroup = (key: string) =>
     setOpenGroups((p) => ({ ...p, [key]: !p[key] }));
 
-  // Handler untuk klik parent saat collapsed
   const handleCollapsedParentClick = (key: string) => {
     setIsCollapsed(false);
     setOpenGroups((p) => ({ ...p, [key]: true }));
   };
 
   return (
-    <div className="flex min-h-screen bg-slate-950">
+    <div className="flex h-screen overflow-hidden bg-slate-950">
       {isOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
@@ -181,7 +179,7 @@ export default function Sidebar() {
       </aside>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-h-screen">
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
         <div className="sticky top-0 z-30 flex items-center gap-4 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm p-4 lg:hidden">
           <button onClick={() => setIsOpen(true)} className="rounded-lg p-2 hover:bg-slate-800">
             <Menu className="h-6 w-6 text-slate-50" />
@@ -189,7 +187,7 @@ export default function Sidebar() {
           <h1 className="font-semibold text-slate-50">SAM Monitoring</h1>
         </div>
 
-        <main className="flex-1">
+        <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>

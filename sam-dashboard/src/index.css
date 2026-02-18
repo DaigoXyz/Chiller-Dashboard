@@ -51,6 +51,28 @@ button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
 }
 
+/* Custom Scrollbar for Dark Theme */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  /* Tetap tipis agar tidak makan tempat di card kecil */
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  /* Biar menyatu dengan bg panel */
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  /* Pakai warna muted yang sudah ada di variabel kamu */
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  /* Kasih efek terang sedikit pas di hover */
+  background: rgba(148, 163, 184, 0.4);
+}
+
 @media (prefers-color-scheme: light) {
   :root {
     color: #213547;
