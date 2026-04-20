@@ -2,19 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { getDashboard, retryLogs } from "../api/DashboardApi";
 import type { DashboardDto, ErrorLogItemDto } from "../types/Dashboard";
 import { DeviceSyncDoughnut, PushGaugeLike, SyncSuccessStackedBar, OfflineDevicesLine, ThroughputGauge, OfflineDevicesPie, } from "../components/Charts";
-import { CollectionTableList } from "../components/Table";
+import { CollectionTableList, ErrorLogTableList } from "../components/Table";
 import Navbar from "../components/Navbar";
-import { Check, X, AlertTriangle, Loader2 } from "lucide-react";
 
 function logKey(l: ErrorLogItemDto) {
   return `${l.time}|${l.level}|${l.message}`;
-}
-function badgeClassLevel(level: string) {
-  if (level === "INFO") return "bg-sky-500/15 text-sky-200 border-sky-500/30";
-  if (level === "WARN") return "bg-amber-500/15 text-amber-200 border-amber-500/30";
-  return "bg-rose-500/15 text-rose-200 border-rose-500/30";
-}
-
+} 
 // Temporary function to add pipeline status for testing
 type PipelineStatus = "success" | "failed" | "running" | "warning";
 
@@ -96,7 +89,6 @@ export default function AdminDashboardPage() {
   }, [dateRange]); // Re-fetch when date range changes
 
   const visibleLogs = useMemo(() => (data?.errorLogs ?? []).slice(0, 4), [data]);
-  const allChecked = visibleLogs.length > 0 && visibleLogs.every((l) => selected.has(logKey(l)));
 
   const toggleAll = (checked: boolean) => {
     const next = new Set<string>();
@@ -206,129 +198,19 @@ export default function AdminDashboardPage() {
               </div>
             </div>
             
-            <CollectionTableList items={dummyCollections} />
+            <CollectionTableList 
+              items={dummyCollections} 
+              onRetry={(item) => console.log("Retrying", item.name)} 
+            />
 
-            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="font-medium">Recent Error & Event Logs</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-slate-400">
-                    <tr className="border-b border-white/10">
-                      <th className="w-12 py-2 text-left font-medium">
-                        <input type="checkbox" checked={allChecked} onChange={(e) => toggleAll(e.target.checked)} />
-                      </th>
-                      <th className="py-2 text-left font-medium">Time</th>
-                      <th className="py-2 text-left font-medium">Level</th>
-                      <th className="py-2 text-left font-medium">Message</th>
-                      <th className="w-[280px] px-2 py-2 text-center font-medium">Pipeline</th>
-                      <th className="w-32 px-2 py-2 text-left font-medium">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleLogs.map((log, idx) => {
-                      const k = logKey(log);
-                      return (
-                        <tr key={idx} className="border-b border-white/5">
-                          <td className="py-2">
-                            <input type="checkbox" checked={selected.has(k)} onChange={(e) => toggleOne(log, e.target.checked)} />
-                          </td>
-                          <td className="py-2">{log.time}</td>
-                          <td className="py-2">
-                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${badgeClassLevel(log.level)}`}>
-                              {log.level}
-                            </span>
-                          </td>
-                          <td className="w-[350px] py-2 break-words">{log.message}</td>
-                          <td className="w-[350px] py-3">
-                            {/* Pipeline Flow Diagram */}
-                            <div className="flex items-center justify-center gap-1.5">
-                              {/* Build Stage */}
-                              <div className="flex flex-col items-center">
-                                <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
-                                  log.pipelineStatus === "success" ? "border-emerald-500/30 bg-emerald-500/15" :
-                                  log.pipelineStatus === "failed" ? "border-rose-500/30 bg-rose-500/15" :
-                                  log.pipelineStatus === "running" ? "border-blue-500/30 bg-blue-500/15" :
-                                  "border-amber-500/30 bg-amber-500/15"
-                                }`}>
-                                  {log.pipelineStatus === "failed" ? <X className="h-4 w-4 text-rose-200" /> :
-                                   log.pipelineStatus === "warning" ? <AlertTriangle className="h-4 w-4 text-amber-200" /> :
-                                   log.pipelineStatus === "running" ? <Loader2 className="h-4 w-4 animate-spin text-blue-200" /> :
-                                   <Check className="h-4 w-4 text-emerald-200" />}
-                                </div>
-                              </div>
-
-                              {/* Connector Line */}
-                              <div className="h-0.5 w-8 bg-white/10"></div>
-
-                              {/* Test Stage 1 */}
-                              <div className="flex flex-col items-center">
-                                <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
-                                  log.pipelineStatus === "success" ? "border-emerald-500/30 bg-emerald-500/15" :
-                                  log.pipelineStatus === "running" ? "border-blue-500/30 bg-blue-500/15" :
-                                  "border-white/10 bg-white/5"
-                                }`}>
-                                  {log.pipelineStatus === "success" ? <Check className="h-4 w-4 text-emerald-200" /> :
-                                   log.pipelineStatus === "running" ? <Loader2 className="h-4 w-4 animate-spin text-blue-200" /> :
-                                   <div className="h-2 w-2 rounded-full bg-white/20"></div>}
-                                </div>
-                              </div>
-
-                              {/* Connector Line */}
-                              <div className="h-0.5 w-8 bg-white/10"></div>
-
-                              {/* Test Stage 2 */}
-                              <div className="flex flex-col items-center">
-                                <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
-                                  log.pipelineStatus === "success" ? "border-emerald-500/30 bg-emerald-500/15" :
-                                  "border-white/10 bg-white/5"
-                                }`}>
-                                  {log.pipelineStatus === "success" ? <Check className="h-4 w-4 text-emerald-200" /> :
-                                   <div className="h-2 w-2 rounded-full bg-white/20"></div>}
-                                </div>
-                              </div>
-
-                              {/* Connector Line */}
-                              <div className="h-0.5 w-8 bg-white/10"></div>
-
-                              {/* Deploy Stage */}
-                              <div className="flex flex-col items-center">
-                                <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
-                                  log.pipelineStatus === "success" ? "border-emerald-500/30 bg-emerald-500/15" :
-                                  "border-white/10 bg-white/5"
-                                }`}>
-                                  {log.pipelineStatus === "success" ? <Check className="h-4 w-4 text-emerald-200" /> :
-                                   <div className="h-2 w-2 rounded-full bg-white/20"></div>}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-2">
-                            <button
-                              className="rounded-xl border border-rose-500/30 bg-rose-500/15 px-3 py-1 text-xs text-rose-200 hover:bg-rose-500/25"
-                              onClick={() => retryOne(log)}
-                            >
-                              Retry
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              {selected.size > 0 && (
-                <div className="mt-3 flex justify-end">
-                  <button
-                    className="rounded-xl border border-rose-500/30 bg-rose-500/15 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-500/25"
-                    onClick={retrySelected}
-                  >
-                    Retry Selected ({selected.size})
-                  </button>
-                </div>
-              )}
-            </div>
+            <ErrorLogTableList 
+              logs={visibleLogs}
+              selected={selected}
+              onToggleAll={toggleAll}
+              onToggleOne={toggleOne}
+              onRetryOne={retryOne}
+              onRetrySelected={retrySelected}
+            />
           </>
         )}
       </div>

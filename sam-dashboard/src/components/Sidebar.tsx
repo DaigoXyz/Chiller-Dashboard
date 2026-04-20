@@ -18,15 +18,15 @@ export default function Sidebar() {
           { path: "/admin/monitoring", label: "SAM Monitoring", icon: Activity },
         ],
       },
-      {
-        key: "workers",
-        label: "Workers",
-        icon: BriefcaseBusiness,
-        children: [
-          { path: "/admin/logs", label: "Publisher Worker", icon: Briefcase },
-          { path: "/admin/woi", label: "Etl Worker", icon: Briefcase },
-        ],
-      },
+      // {
+      //   key: "workers",
+      //   label: "Workers",
+      //   icon: BriefcaseBusiness,
+      //   children: [
+      //     { path: "/admin/logs", label: "Publisher Worker", icon: Briefcase },
+      //     { path: "/admin/woi", label: "Etl Worker", icon: Briefcase },
+      //   ],
+      // },
     ],
     []
   );
