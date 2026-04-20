@@ -2,4 +2,14 @@ services:
   web:
     build: ./sam-dashboard
     ports:
-      - "8080:80"
+      - "8080:8080"
+    depends_on:
+      - backend
+
+  backend:
+    build: ./chiller-backend
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./chiller-backend/.env
+    restart: unless-stopped
