@@ -161,7 +161,7 @@ app.get("/chiller/daily", async (req, res) => {
         d.szName LIKE '%Bima%'
         OR d.szName LIKE '%Arjuna%'
         OR d.szName LIKE '%Yudistira%'
-      )
+      ) 
       AND EXISTS (
         SELECT 1 FROM BOS_NPN WITH(NOLOCK)
         WHERE BOSnetszProductId = p.szProductId

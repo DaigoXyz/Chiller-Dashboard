@@ -1,11 +1,20 @@
 import { useEffect, useState, useRef } from "react";
 import { getChillerDaily } from "../api/ChillerApi";
 import type { ChillerDaily } from "../api/ChillerApi";
+import * as XLSX from "xlsx";
+import { Download } from "lucide-react";
 
 const PALETTE = [
   "#6ee7b7","#67e8f9","#a5b4fc","#fcd34d",
   "#f9a8d4","#86efac","#fb923c","#a78bfa","#34d399","#f472b6",
 ];
+
+function exportToExcel(filename: string, sheetName: string, rows: Record<string, unknown>[]) {
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, `${filename}.xlsx`);
+}
 
 function dateRange(start: string, end: string): string[] {
   const dates: string[] = [];
@@ -262,7 +271,7 @@ function SimpleBarChart({ days, data, color, label }: {
               onMouseLeave={() => setTooltip(null)}
             >
               <div className="w-full rounded-t-sm transition-all"
-                style={{ height: h, background: color, opacity: v === 0 ? 0.1 : 0.85 }} />
+                style={{ height: h, background: color, opacity: v === 0 ? 0.1 : 0.92 }} />
             </div>
           );
         })}
@@ -271,7 +280,7 @@ function SimpleBarChart({ days, data, color, label }: {
         {days.map((d, i) => (
           <div key={d} className="flex-1 text-center" style={{ minWidth: 0 }}>
             {(days.length <= 15 || i % Math.ceil(days.length / 10) === 0) && (
-              <span className="text-[10px] text-slate-500">{shortDate(d)}</span>
+              <span className="text-[11px] text-slate-400">{shortDate(d)}</span>
             )}
           </div>
         ))}
@@ -318,7 +327,7 @@ function StackedBarChart({ days, series, valueLabel }: {
                 {series.map((sr) => {
                   const v = sr.data[d] ?? 0;
                   const segH = total > 0 ? (v / total) * h : 0;
-                  return <div key={sr.key} style={{ height: segH, background: sr.color, opacity: 0.85, flexShrink: 0 }} />;
+                  return <div key={sr.key} style={{ height: segH, background: sr.color, opacity: 0.92, flexShrink: 0 }} />;
                 })}
               </div>
             </div>
@@ -329,7 +338,7 @@ function StackedBarChart({ days, series, valueLabel }: {
         {days.map((d, i) => (
           <div key={d} className="flex-1 text-center" style={{ minWidth: 0 }}>
             {(days.length <= 15 || i % Math.ceil(days.length / 10) === 0) && (
-              <span className="text-[10px] text-slate-500">{shortDate(d)}</span>
+              <span className="text-[11px] text-slate-400">{shortDate(d)}</span>
             )}
           </div>
         ))}
@@ -360,19 +369,52 @@ function StackedBarChart({ days, series, valueLabel }: {
 }
 
 // ─── ChartCard ────────────────────────────────────────────────────────────────
-function ChartCard({ title, total, totalLabel, children }: {
-  title: string; total?: number; totalLabel?: string; children: React.ReactNode;
+function ChartCard({ title, total, totalLabel, children, onExport }: {
+  title: string; total?: number; totalLabel?: string; children: React.ReactNode; onExport?: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
       <div className="flex items-start justify-between mb-4">
-        <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest">{title}</div>
-        {total !== undefined && (
-          <div className="text-right">
-            <div className="text-xl font-bold font-mono text-slate-200">{total.toLocaleString()}</div>
-            <div className="text-[10px] text-slate-500">{totalLabel}</div>
-          </div>
+        {/* Kiri: judul */}
+        <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest pt-0.5">
+          {title}
+        </div>
+
+        {/* Kanan: total + export dalam SATU flex container */}
+        <div className="flex items-start gap-2 shrink-0">
+          {total !== undefined && (
+            <div className="text-right">
+              <div className="text-2xl font-bold font-mono text-slate-100 leading-none">
+                {total.toLocaleString()}
+              </div>
+              <div className="text-[12px] text-slate-300 mt-1">{totalLabel}</div>
+            </div>
+          )}
+        {onExport && (
+            <button
+                onClick={onExport}
+                title="Export ke Excel"
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#6ee7b7")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "#e2e8f0")}
+                style={{ 
+                background: "rgba(255,255,255,0.12)", 
+                border: "1px solid rgba(255,255,255,0.25)",
+                width: "32px",
+                height: "32px",
+                borderRadius: "8px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                flexShrink: 0,
+                color: "#e2e8f0",
+                transition: "color 0.15s",
+                }}
+            >
+                <Download style={{ width: "15px", height: "15px", minWidth: "15px", flexShrink: 0 }} />
+            </button>
         )}
+        </div>
       </div>
       {children}
     </div>
@@ -430,6 +472,50 @@ export default function ChillerDashboardPage() {
   });
   const totalTeamStores = data?.teamPerDay.reduce((s, r) => s + r.totalStores, 0) ?? 0;
 
+  // ── Export helpers ────────────────────────────────────────────────────────────
+function exportPhotos() {
+  const rows = days.map((d) => ({ Tanggal: d, "Jumlah Foto": photosMap[d] ?? 0 }));
+  exportToExcel("jumlah_foto_per_hari", "Foto", rows);
+}
+
+function exportStores() {
+  const rows = days.map((d) => ({ Tanggal: d, "Jumlah Toko": storesMap[d] ?? 0 }));
+  exportToExcel("jumlah_toko_per_hari", "Toko", rows);
+}
+
+function exportChannel() {
+  const rows = days.flatMap((d) =>
+    channelSeries.map((sr) => ({
+      Tanggal: d,
+      Channel: sr.label,
+      "Jumlah Toko": sr.data[d] ?? 0,
+    }))
+  );
+  exportToExcel("toko_per_channel_per_hari", "Channel", rows);
+}
+
+function exportDisplay() {
+  const rows = days.flatMap((d) =>
+    displaySeries.map((sr) => ({
+      Tanggal: d,
+      "Tipe Display (POI)": sr.label,
+      "Jumlah Foto": sr.data[d] ?? 0,
+    }))
+  );
+  exportToExcel("jenis_display_per_hari", "Display", rows);
+}
+
+function exportTeam() {
+  const rows = days.flatMap((d) =>
+    teamSeries.map((sr) => ({
+      Tanggal: d,
+      Team: sr.label,
+      "Jumlah Toko": sr.data[d] ?? 0,
+    }))
+  );
+  exportToExcel("team_sales_per_hari", "Team Sales", rows);
+}
+
   return (
     <div className="p-6 min-h-screen">
       <div className="mx-auto max-w-7xl space-y-5">
@@ -459,25 +545,25 @@ export default function ChillerDashboardPage() {
         {!loading && !error && data && (
           <>
             <div className="grid gap-5 md:grid-cols-2">
-              <ChartCard title="Jumlah Foto per Hari" total={totalPhotos} totalLabel="total foto periode ini">
+              <ChartCard title="Jumlah Foto per Hari" total={totalPhotos} totalLabel="Total foto periode ini" onExport={exportPhotos}>
                 <SimpleBarChart days={days} data={photosMap} color="#67e8f9" label="foto" />
               </ChartCard>
-              <ChartCard title="Jumlah Toko per Hari" total={totalStores} totalLabel="total kunjungan toko">
+              <ChartCard title="Jumlah Toko per Hari" total={totalStores} totalLabel="Total kunjungan toko" onExport={exportStores}>
                 <SimpleBarChart days={days} data={storesMap} color="#6ee7b7" label="toko" />
               </ChartCard>
-              <ChartCard title="Toko per Channel per Hari" total={totalStores} totalLabel="total toko semua channel">
+              <ChartCard title="Toko per Channel per Hari" total={totalStores} totalLabel="Total toko semua channel" onExport={exportChannel}>
                 {channelSeries.length > 0
                   ? <StackedBarChart days={days} series={channelSeries} valueLabel="toko" />
                   : <p className="text-xs text-slate-500">Tidak ada data channel.</p>}
               </ChartCard>
-              <ChartCard title="Jenis Display per Hari" total={totalDisplayPhotos} totalLabel="total foto display periode ini">
+              <ChartCard title="Jenis Display per Hari" total={totalDisplayPhotos} totalLabel="Total foto display periode ini" onExport={exportDisplay}>
                 {displaySeries.length > 0
                   ? <StackedBarChart days={days} series={displaySeries} valueLabel="foto" />
                   : <p className="text-xs text-slate-500">Tidak ada data display.</p>}
               </ChartCard>
             </div>
 
-            <ChartCard title="Team Sales per Hari" total={totalTeamStores} totalLabel="total kunjungan toko semua team">
+            <ChartCard title="Team Sales per Hari" total={totalTeamStores} totalLabel="Total kunjungan toko semua team" onExport={exportTeam}>
               {teamSeries.length > 0
                 ? <StackedBarChart days={days} series={teamSeries} valueLabel="toko" />
                 : <p className="text-xs text-slate-500">Tidak ada data team.</p>}
