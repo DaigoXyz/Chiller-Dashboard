@@ -101,9 +101,9 @@ export default function Navbar({
   return (
     <div className="mb-6 flex items-center justify-between">
       <div>
-        <h2 className="text-2xl font-bold">Dashboard Overview</h2>
+        <h2 className="text-2xl font-bold">Dashboard Chiller</h2>
         <p className="mt-1 text-sm text-slate-400">
-          Real-time monitoring and analytics
+          Dashboard Monitoring
         </p>
       </div>
 
