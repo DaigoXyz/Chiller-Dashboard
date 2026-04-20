@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import AdminDashboardPage from "./pages/AdminDashboardPage";
+// import AdminDashboardPage from "./pages/AdminDashboardPage";
+import ChillerDashboardPage from "./pages/ChillerDashboardPage";
 import ErrorLogsPage from "./pages/ListTable";
 import LoginPage from "./pages/Login";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -14,7 +15,7 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route path="/admin" element={<Sidebar />}>
           <Route index element={<Navigate to="monitoring" replace />} />
-          <Route path="monitoring" element={<AdminDashboardPage />} />
+          <Route path="monitoring" element={<ChillerDashboardPage />} />
           <Route path="logs" element={<ErrorLogsPage />} />
         </Route>
       </Route>
