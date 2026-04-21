@@ -1,12 +1,19 @@
-import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Briefcase, BriefcaseBusiness, Menu, ChevronDown, Activity, ChevronLeft, ChevronRight } from "lucide-react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { LayoutDashboard, Menu, ChevronDown, Activity, ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { logout } from "../api/AuthApi";
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ dashboard: true });
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
 
   const navItems = useMemo(
     () => [
@@ -18,15 +25,6 @@ export default function Sidebar() {
           { path: "/admin/monitoring", label: "SAM Monitoring", icon: Activity },
         ],
       },
-      // {
-      //   key: "workers",
-      //   label: "Workers",
-      //   icon: BriefcaseBusiness,
-      //   children: [
-      //     { path: "/admin/logs", label: "Publisher Worker", icon: Briefcase },
-      //     { path: "/admin/woi", label: "Etl Worker", icon: Briefcase },
-      //   ],
-      // },
     ],
     []
   );
@@ -67,13 +65,11 @@ export default function Sidebar() {
         } ${isCollapsed ? "lg:w-20" : "lg:w-64"} w-64`}
       >
         <div className="flex h-full flex-col">
-          {/* Header/Logo */}
+          {/* Header */}
           <div className={`border-b border-slate-800 py-5 flex items-center transition-all duration-300 ${
             isCollapsed ? "px-0 justify-center" : "px-6 justify-between"
           }`}>
             {!isCollapsed && <h2 className="text-xl font-bold text-slate-50">SAM Dashboard</h2>}
-            
-            {/* Toggle button untuk desktop */}
             <button
               onClick={() => setIsCollapsed(!isCollapsed)}
               className="hidden lg:flex rounded-lg p-1.5 hover:bg-slate-800 text-slate-400 hover:text-slate-50 transition-colors"
@@ -90,12 +86,10 @@ export default function Sidebar() {
                 const isActiveGroup = item.children.some((child) =>
                   location.pathname.startsWith(child.path)
                 );
-
                 return (
                   <div key={item.key}>
                     {!isCollapsed ? (
                       <>
-                        {/* Parent Button - Normal state */}
                         <button
                           type="button"
                           onClick={() => toggleGroup(item.key)}
@@ -103,14 +97,8 @@ export default function Sidebar() {
                         >
                           <GroupIcon className="h-4 w-4 flex-shrink-0" />
                           <span className="flex-1 text-left">{item.label}</span>
-                          <ChevronDown
-                            className={`h-3.5 w-3.5 transition-transform duration-200 ${
-                              groupOpen ? "rotate-180" : ""
-                            }`}
-                          />
+                          <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${groupOpen ? "rotate-180" : ""}`} />
                         </button>
-
-                        {/* Children - Normal state */}
                         {groupOpen && (
                           <div className="mt-1 space-y-0.5 pl-4">
                             {item.children.map((child) => {
@@ -137,21 +125,18 @@ export default function Sidebar() {
                         )}
                       </>
                     ) : (
-                      <>
-                        {/* Collapsed state - parent icon aja */}
-                        <button
-                          type="button"
-                          onClick={() => handleCollapsedParentClick(item.key)}
-                          title={item.label}
-                          className={`flex w-full items-center justify-center rounded-lg p-3 transition-all ${
-                            isActiveGroup
-                              ? "bg-slate-800 text-slate-50"
-                              : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
-                          }`}
-                        >
-                          <GroupIcon className="h-5 w-5" />
-                        </button>
-                      </>
+                      <button
+                        type="button"
+                        onClick={() => handleCollapsedParentClick(item.key)}
+                        title={item.label}
+                        className={`flex w-full items-center justify-center rounded-lg p-3 transition-all ${
+                          isActiveGroup
+                            ? "bg-slate-800 text-slate-50"
+                            : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+                        }`}
+                      >
+                        <GroupIcon className="h-5 w-5" />
+                      </button>
                     )}
                   </div>
                 );
@@ -161,18 +146,25 @@ export default function Sidebar() {
 
           {/* Footer */}
           {!isCollapsed ? (
-            <div className="border-t border-slate-800 p-4">
-              <div className="rounded-lg bg-slate-800/50 px-3 py-2.5">
-                <p className="text-xs font-medium text-slate-300">System Status</p>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-xs text-slate-400">All systems operational</span>
-                </div>
-              </div>
+            <div className="border-t border-slate-800 p-4 space-y-2">c
+              <button
+                onClick={handleLogout}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors"
+              >
+                <LogOut style={{ width: "16px", height: "16px", minWidth: "16px" }} />
+                <span>Logout</span>
+              </button>
             </div>
           ) : (
-            <div className="border-t border-slate-800 p-4 flex justify-center">
+            <div className="border-t border-slate-800 p-4 flex flex-col items-center gap-3">
               <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <button
+                onClick={handleLogout}
+                title="Logout"
+                className="rounded-lg p-2 text-slate-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors"
+              >
+                <LogOut style={{ width: "16px", height: "16px", minWidth: "16px" }} />
+              </button>
             </div>
           )}
         </div>
@@ -186,7 +178,6 @@ export default function Sidebar() {
           </button>
           <h1 className="font-semibold text-slate-50">SAM Monitoring</h1>
         </div>
-
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>

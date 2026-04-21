@@ -1,4 +1,4 @@
-const API_BASE = "https://d856dfe1-2c1f-42b0-8ccd-15d839344d0d.mock.pstmn.io";
+const API_BASE = "https://698d6f2cb79d1c928ed54b6b.mockapi.io/api";
 
 export interface User {
   id: string;
