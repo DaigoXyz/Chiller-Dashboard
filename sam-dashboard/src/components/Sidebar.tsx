@@ -1,12 +1,19 @@
-import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Briefcase, BriefcaseBusiness, Menu, ChevronDown, Activity, ChevronLeft, ChevronRight } from "lucide-react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { LayoutDashboard, Briefcase, BriefcaseBusiness, Menu, ChevronDown, Activity, ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { logout } from "../api/AuthApi";
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ dashboard: true });
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
 
   const navItems = useMemo(
     () => [
@@ -160,21 +167,28 @@ export default function Sidebar() {
           </nav>
 
           {/* Footer */}
-          {!isCollapsed ? (
-            <div className="border-t border-slate-800 p-4">
-              <div className="rounded-lg bg-slate-800/50 px-3 py-2.5">
-                <p className="text-xs font-medium text-slate-300">System Status</p>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-xs text-slate-400">All systems operational</span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="border-t border-slate-800 p-4 flex justify-center">
-              <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            </div>
-          )}
+	{!isCollapsed ? (
+	  <div className="border-t border-slate-800 p-4 space-y-2">
+	    <button
+	      onClick={handleLogout}
+	      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors"
+	    >
+	      <LogOut style={{ width: "16px", height: "16px", minWidth: "16px" }} />
+	      <span>Logout</span>
+	    </button>
+	  </div>
+	) : (
+	  <div className="border-t border-slate-800 p-4 flex flex-col items-center gap-3">
+	    <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+	    <button
+	      onClick={handleLogout}
+	      title="Logout"
+	      className="rounded-lg p-2 text-slate-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors"
+	    >
+	      <LogOut style={{ width: "16px", height: "16px", minWidth: "16px" }} />
+	    </button>
+	  </div>
+	)}
         </div>
       </aside>
 
