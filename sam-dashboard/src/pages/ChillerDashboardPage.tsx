@@ -210,7 +210,7 @@ function SimpleBarChart({ days, data, color, label, isDark }: {
           const v = data[d] ?? 0;
           const h = Math.max((v / max) * 160, v > 0 ? 2 : 0);
           return (
-            <div key={d} className="flex-1 flex flex-col justify-end cursor-default" style={{ height: 160 }}
+            <div key={d} className="flex-1 flex flex-col justify-end items-center cursor-default" style={{ height: 160 }}
               onMouseEnter={(e) => {
                 const rect = ref.current!.getBoundingClientRect();
                 const br = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -218,6 +218,11 @@ function SimpleBarChart({ days, data, color, label, isDark }: {
               }}
               onMouseLeave={() => setTooltip(null)}
             >
+              {v > 0 && (
+                <span className={`text-[14px] font-semibold mb-0.5 leading-none ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                  {v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v}
+                </span>
+              )}
               <div className="w-full rounded-t-sm transition-all"
                 style={{ height: h, background: color, opacity: v === 0 ? 0.15 : 0.9 }} />
             </div>
@@ -263,7 +268,8 @@ function StackedBarChart({ days, series, valueLabel, isDark }: {
           const total = totals[di];
           const h = Math.max((total / max) * 160, total > 0 ? 2 : 0);
           return (
-            <div key={d} className="flex-1 flex flex-col justify-end cursor-default" style={{ height: 160 }}
+            // StackedBarChart — ganti inner div per bar
+            <div key={d} className="flex-1 flex flex-col justify-end items-center cursor-default" style={{ height: 160 }}
               onMouseEnter={(e) => {
                 const rect = ref.current!.getBoundingClientRect();
                 const br = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -272,6 +278,11 @@ function StackedBarChart({ days, series, valueLabel, isDark }: {
               }}
               onMouseLeave={() => setTooltip(null)}
             >
+              {total > 0 && (
+                <span className={`text-[14px] font-semibold mb-0.5 leading-none ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                  {total >= 1000 ? `${(total / 1000).toFixed(1)}k` : total}
+                </span>
+              )}
               <div className="w-full rounded-t-sm overflow-hidden flex flex-col justify-end" style={{ height: h }}>
                 {series.map((sr) => {
                   const v = sr.data[d] ?? 0;
