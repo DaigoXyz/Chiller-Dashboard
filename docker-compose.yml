@@ -2,7 +2,7 @@ services:
   web:
     build: ./sam-dashboard
     ports:
-      - "8080:80"
+      - "7070:80"
     depends_on:
       - backend
 

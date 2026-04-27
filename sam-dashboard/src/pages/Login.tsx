@@ -106,13 +106,8 @@ export default function LoginPage() {
 
           {/* Footer Note */}
           <div className="mt-6 text-center text-sm text-slate-400">
-            <p>Demo credentials available via MockAPI</p>
+            <p>Dashboard Monitoring System</p>
           </div>
-        </div>
-
-        {/* Additional Info */}
-        <div className="mt-6 text-center text-xs text-slate-500">
-          Protected by SAM Security System
         </div>
       </div>
     </div>
