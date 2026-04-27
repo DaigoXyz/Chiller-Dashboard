@@ -268,6 +268,7 @@ function StackedBarChart({ days, series, valueLabel, isDark }: {
           const total = totals[di];
           const h = Math.max((total / max) * 160, total > 0 ? 2 : 0);
           return (
+            // StackedBarChart — ganti inner div per bar
             <div key={d} className="flex-1 flex flex-col justify-end items-center cursor-default" style={{ height: 160 }}
               onMouseEnter={(e) => {
                 const rect = ref.current!.getBoundingClientRect();
