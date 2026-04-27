@@ -1,10 +1,10 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-// import AdminDashboardPage from "./pages/AdminDashboardPage";
 import ChillerDashboardPage from "./pages/ChillerDashboardPage";
-import ErrorLogsPage from "./pages/ListTable";
+import ErrorLogsPage from "./pages/ErrorLogsPage";
 import LoginPage from "./pages/Login";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Sidebar from "./components/Sidebar";
+import ChillerOverviewPage from "./pages/ChillerOverviewPage";
 
 export default function App() {
   return (
@@ -16,6 +16,7 @@ export default function App() {
         <Route path="/admin" element={<Sidebar />}>
           <Route index element={<Navigate to="monitoring" replace />} />
           <Route path="monitoring" element={<ChillerDashboardPage />} />
+          <Route path="overview" element={<ChillerOverviewPage />} />
           <Route path="logs" element={<ErrorLogsPage />} />
         </Route>
       </Route>

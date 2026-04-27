@@ -43,6 +43,7 @@ export default function Sidebar() {
         icon: LayoutDashboard,
         children: [
           { path: "/admin/monitoring", label: "SAM Monitoring", icon: Activity },
+          { path: "/admin/overview", label: "Overview", icon: Activity }
         ],
       },
     ],
