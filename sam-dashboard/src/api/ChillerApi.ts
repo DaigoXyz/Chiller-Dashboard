@@ -17,7 +17,7 @@ export interface ChillerDaily {
 const BASE_URL = import.meta.env.VITE_CHILLER_API_URL as string | undefined;
 if (!BASE_URL) console.warn("[ChillerApi] VITE_CHILLER_API_URL is not set.");
 
-const http = axios.create({ baseURL: BASE_URL ?? "http://localhost:3001" });
+const http = axios.create({ baseURL: BASE_URL ?? "https://posting-improve-skyward.ngrok-free.dev" });
 
 export async function getChillerDaily(start: string, end: string): Promise<ChillerDaily> {
   const res = await http.get<ChillerDaily>("/chiller/daily", { params: { start, end } });

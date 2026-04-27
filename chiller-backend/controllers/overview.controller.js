@@ -59,4 +59,46 @@ const getFilters = async (req, res) => {
   catch (err) { console.error("❌ /overview/filters:", err.message); res.status(500).json({ error: err.message }); }
 };
 
-module.exports = { getDaily, getOverview, getPerformance, getSalesman, getOutletRisk, getTrend, getFilters };
+const getAllSalesman = async (req, res) => {
+  const { start, end, region, channel, sortBy = "top", page = 1, limit = 20, search = "" } = req.query;
+  if (validateDates(res, start, end)) return;
+  try {
+    res.json(await overviewService.getAllSalesmanRanking(
+      start, end, region, channel, sortBy, parseInt(page), parseInt(limit), search
+    ));
+  } catch (err) { console.error("❌ /overview/salesman/all:", err.message); res.status(500).json({ error: err.message }); }
+};
+
+const getAllNotVisited = async (req, res) => {
+  const { start, end, region, channel, page = 1, limit = 20, search = "" } = req.query;
+  if (validateDates(res, start, end)) return;
+  try {
+    res.json(await overviewService.getAllNotVisitedOutlets(
+      start, end, region, channel, parseInt(page), parseInt(limit), search
+    ));
+  } catch (err) { console.error("❌ /overview/outlet-risk/not-visited/all:", err.message); res.status(500).json({ error: err.message }); }
+};
+
+const getAllLowPhoto = async (req, res) => {
+  const { start, end, region, channel, page = 1, limit = 20, search = "" } = req.query;
+  if (validateDates(res, start, end)) return;
+  try {
+    res.json(await overviewService.getAllLowPhotoOutlets(
+      start, end, region, channel, parseInt(page), parseInt(limit), search
+    ));
+  } catch (err) { console.error("❌ /overview/outlet-risk/low-photo/all:", err.message); res.status(500).json({ error: err.message }); }
+};
+
+const getAllDouble = async (req, res) => {
+  const { start, end, region, channel, page = 1, limit = 20, search = "" } = req.query;
+  if (validateDates(res, start, end)) return;
+  try {
+    res.json(await overviewService.getAllDoubleOutlets(
+      start, end, region, channel, parseInt(page), parseInt(limit), search
+    ));
+  } catch (err) { console.error("❌ /overview/outlet-risk/double/all:", err.message); res.status(500).json({ error: err.message }); }
+};
+
+module.exports = {
+  getDaily, getOverview, getPerformance, getSalesman, getOutletRisk, getTrend, getFilters, getAllSalesman, getAllNotVisited, getAllLowPhoto, getAllDouble,
+};

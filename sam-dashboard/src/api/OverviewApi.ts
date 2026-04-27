@@ -2,6 +2,9 @@ import axios from "axios";
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
+  // headers: {
+  //   "ngrok-skip-browser-warning": "69420",
+  // },
 });
 
 
@@ -75,7 +78,6 @@ export interface SalesmanData {
 export interface SalesmanResponse {
   top5: SalesmanData[];
   bottom5: SalesmanData[];
-  all: SalesmanData[];
 }
 
 export interface DailyTrendResponse {
@@ -131,6 +133,18 @@ export interface OutletRiskResponse {
     total: number;
     items: OutletDoubleCoverageItem[];
   };
+}
+
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  totalRows: number;
+  totalPages: number;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: PaginationMeta;
 }
 
 
@@ -222,5 +236,91 @@ export interface FiltersResponse {
 
 export async function getFilters(): Promise<FiltersResponse> {
   const res = await http.get<FiltersResponse>("/overview/filters");
+  return res.data;
+}
+
+/**
+ * Get all salesman ranking with pagination
+ * @param sortBy "top" | "bottom"
+ */
+export async function getAllSalesmanRanking(
+  start: string,
+  end: string,
+  region?: string,
+  channel?: string,
+  sortBy: "top" | "bottom" = "top",
+  page: number = 1,
+  limit: number = 20,
+  search: string = ""
+): Promise<PaginatedResponse<SalesmanData>> {
+  const params: any = { start, end, sortBy, page, limit };
+  if (region && region !== "All") params.region = region;
+  if (channel && channel !== "All") params.channel = channel;
+  if (search) params.search = search;
+
+  const res = await http.get<PaginatedResponse<SalesmanData>>("/overview/salesman/all", { params });
+  return res.data;
+}
+
+/**
+ * Get all outlets that have not been visited
+ */
+export async function getAllNotVisitedOutlets(
+  start: string,
+  end: string,
+  region?: string,
+  channel?: string,
+  page: number = 1,
+  limit: number = 20,
+  search: string = ""
+): Promise<PaginatedResponse<OutletBelumDikunjungiItem>> {
+  const params: any = { start, end, page, limit };
+  if (region && region !== "All") params.region = region;
+  if (channel && channel !== "All") params.channel = channel;
+  if (search) params.search = search;
+
+  const res = await http.get<PaginatedResponse<OutletBelumDikunjungiItem>>("/overview/outlet-risk/not-visited/all", { params });
+  return res.data;
+}
+
+/**
+ * Get all outlets with low photo count (< 3)
+ */
+export async function getAllLowPhotoOutlets(
+  start: string,
+  end: string,
+  region?: string,
+  channel?: string,
+  page: number = 1,
+  limit: number = 20,
+  search: string = ""
+): Promise<PaginatedResponse<OutletFotoRendahItem>> {
+  const params: any = { start, end, page, limit };
+  if (region && region !== "All") params.region = region;
+  if (channel && channel !== "All") params.channel = channel;
+  if (search) params.search = search;
+
+  const res = await http.get<PaginatedResponse<OutletFotoRendahItem>>("/overview/outlet-risk/low-photo/all", { params });
+  return res.data;
+}
+
+/**
+ * Get all outlets with double salesman coverage
+ */
+export async function getAllDoubleOutlets(
+  start: string,
+  end: string,
+  region?: string,
+  channel?: string,
+  page: number = 1,
+  limit: number = 20,
+  search: string = ""
+): Promise<PaginatedResponse<OutletDoubleCoverageItem>> {
+  const params: any = { start, end, page, limit };
+  if (region && region !== "All") params.region = region;
+  if (channel && channel !== "All") params.channel = channel;
+  if (search) params.search = search;
+
+  const res = await http.get<PaginatedResponse<OutletDoubleCoverageItem>>("/overview/outlet-risk/double/all", { params });
   return res.data;
 }

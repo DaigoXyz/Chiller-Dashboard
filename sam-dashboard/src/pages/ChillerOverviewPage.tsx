@@ -3,6 +3,7 @@ import ReactApexChart from "react-apexcharts";
 import StatCard from "../components/StatCard";
 import SalesmanRankTable from "../components/SalesmanRankTable";
 import KeyInsights from "../components/InsightCard";
+import LovModal, { type LovModalVariant, type LovModalRow } from "../components/LovModal";
 import { StatCardSkeleton, ChartSkeleton, TableSkeleton } from "../components/LoadingSkeleton";
 import {
   getOverview,
@@ -11,6 +12,10 @@ import {
   getDailyTrend,
   getOutletRisk,
   getFilters,
+  getAllSalesmanRanking,
+  getAllNotVisitedOutlets,
+  getAllLowPhotoOutlets,
+  getAllDoubleOutlets,
   type OverviewResponse,
   type PerformanceResponse,
   type SalesmanResponse,
@@ -161,7 +166,6 @@ function PageHeader({
   channelOptions,
 }: PageHeaderProps) {
   const [openDropdown, setOpenDropdown] = React.useState<string | null>(null);
-  // Mobile filter panel toggle
   const [showFilters, setShowFilters] = React.useState(false);
   const monthLabel = getMonthLabel(selectedMonth);
 
@@ -196,21 +200,10 @@ function PageHeader({
         : "text-gray-700 hover:bg-gray-50"
     }`;
 
-  // Shared dropdown trigger button
   const FilterDropdown = ({
-    id,
-    label,
-    value,
-    children,
-    loading,
-    minWidth = "w-[130px]",
+    id, label, value, children, loading, minWidth = "w-[130px]",
   }: {
-    id: string;
-    label: string;
-    value: string;
-    children: React.ReactNode;
-    loading?: boolean;
-    minWidth?: string;
+    id: string; label: string; value: string; children: React.ReactNode; loading?: boolean; minWidth?: string;
   }) => (
     <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
       {loading ? (
@@ -243,16 +236,14 @@ function PageHeader({
 
   return (
     <div className="mb-1">
-      {/* Title row */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <h1 className="text-sm sm:text-base font-bold text-gray-900 leading-tight">Visibility Analytics Dashboard</h1>
           <p className="text-[11px] sm:text-[13px] text-gray-500 mt-0.5 truncate">Overview Performance - {monthLabel}</p>
         </div>
 
-        {/* Desktop filters: inline */}
+        {/* Desktop filters */}
         <div className="hidden md:flex items-center gap-2 lg:gap-3 flex-shrink-0">
-          {/* Periode */}
           <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
             <button
               onClick={(e) => toggleDropdown("periode", e)}
@@ -268,11 +259,7 @@ function PageHeader({
             {openDropdown === "periode" && (
               <div className="absolute right-0 mt-2 w-52 bg-white border border-gray-100 rounded-lg shadow-lg py-1 z-50 max-h-72 overflow-y-auto">
                 {[...MONTHS].reverse().map((month) => (
-                  <button
-                    key={month.value}
-                    onClick={() => handleMonthSelect(month.value, month.endValue)}
-                    className={dropdownItemClass(selectedMonth === month.value)}
-                  >
+                  <button key={month.value} onClick={() => handleMonthSelect(month.value, month.endValue)} className={dropdownItemClass(selectedMonth === month.value)}>
                     {month.label}
                   </button>
                 ))}
@@ -280,7 +267,6 @@ function PageHeader({
             )}
           </div>
 
-          {/* Region */}
           <FilterDropdown id="region" label="Region" value={selectedRegion} loading={loadingFilters} minWidth="w-[120px] lg:w-[130px]">
             <button onClick={() => handleRegionSelect("Semua")} className={dropdownItemClass(selectedRegion === "Semua")}>Semua</button>
             {regionOptions.map((r) => (
@@ -288,7 +274,6 @@ function PageHeader({
             ))}
           </FilterDropdown>
 
-          {/* Channel */}
           <FilterDropdown id="channel" label="Channel" value={selectedChannel} loading={loadingFilters} minWidth="w-[120px] lg:w-[130px]">
             <button onClick={() => handleChannelSelect("Semua")} className={dropdownItemClass(selectedChannel === "Semua")}>Semua</button>
             {channelOptions.map((c) => (
@@ -296,35 +281,28 @@ function PageHeader({
             ))}
           </FilterDropdown>
 
-          {/* Refresh */}
           <button
             onClick={onRefresh}
             disabled={isLoading}
-            className={`flex items-center justify-center w-[40px] h-[40px] sm:w-[46px] sm:h-[46px] border border-gray-200 rounded-lg flex-shrink-0 ${
-              isLoading ? "bg-gray-100" : "bg-white hover:bg-gray-50"
-            }`}
+            className={`flex items-center justify-center w-[40px] h-[40px] sm:w-[46px] sm:h-[46px] border border-gray-200 rounded-lg flex-shrink-0 ${isLoading ? "bg-gray-100" : "bg-white hover:bg-gray-50"}`}
           >
             <IconRefreshCw className={`w-4 h-4 ${isLoading ? "text-gray-300 animate-spin" : "text-gray-500"}`} />
           </button>
         </div>
 
-        {/* Mobile: filter toggle + refresh buttons */}
+        {/* Mobile buttons */}
         <div className="flex md:hidden items-center gap-2 flex-shrink-0">
           <button
             onClick={onRefresh}
             disabled={isLoading}
-            className={`flex items-center justify-center w-9 h-9 border border-gray-200 rounded-lg ${
-              isLoading ? "bg-gray-100" : "bg-white hover:bg-gray-50"
-            }`}
+            className={`flex items-center justify-center w-9 h-9 border border-gray-200 rounded-lg ${isLoading ? "bg-gray-100" : "bg-white hover:bg-gray-50"}`}
           >
             <IconRefreshCw className={`w-4 h-4 ${isLoading ? "text-gray-300 animate-spin" : "text-gray-500"}`} />
           </button>
           <button
             onClick={() => setShowFilters((p) => !p)}
             className={`flex items-center gap-1.5 px-3 h-9 border rounded-lg text-[12px] font-medium transition-colors ${
-              showFilters
-                ? "bg-blue-50 border-blue-200 text-blue-700"
-                : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+              showFilters ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
             }`}
           >
             <IconFilter className="w-3.5 h-3.5" />
@@ -336,7 +314,6 @@ function PageHeader({
       {/* Mobile filter panel */}
       {showFilters && (
         <div className="mt-3 md:hidden flex flex-col gap-2 bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
-          {/* Periode */}
           <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
             <button
               onClick={(e) => toggleDropdown("m-periode", e)}
@@ -361,7 +338,6 @@ function PageHeader({
           </div>
 
           <div className="flex gap-2">
-            {/* Region */}
             <div className="relative flex-1" onMouseDown={(e) => e.stopPropagation()}>
               <button
                 onClick={(e) => toggleDropdown("m-region", e)}
@@ -383,7 +359,6 @@ function PageHeader({
               )}
             </div>
 
-            {/* Channel */}
             <div className="relative flex-1" onMouseDown={(e) => e.stopPropagation()}>
               <button
                 onClick={(e) => toggleDropdown("m-channel", e)}
@@ -427,7 +402,6 @@ function ComparisonCard({ items, onCancel, color = "#3B82F6", title = "" }: Comp
   const fmt = (n: number) => n.toLocaleString("id-ID");
   const diffStr = `${isPositive ? "+" : ""}${diff.toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
   const COLORS = [color, "#10B981"];
-
   const truncate = (s: string) => s.length > 12 ? s.slice(0, 12) + "\u2026" : s;
 
   const chartOptions: any = {
@@ -446,10 +420,7 @@ function ComparisonCard({ items, onCancel, color = "#3B82F6", title = "" }: Comp
       categories: [a.label, b.label],
       axisBorder: { show: false },
       axisTicks: { show: false },
-      labels: {
-        style: { fontSize: "11px", fontWeight: "500", colors: "#6B7280" },
-        formatter: (val: string) => truncate(val),
-      },
+      labels: { style: { fontSize: "11px", fontWeight: "500", colors: "#6B7280" }, formatter: (val: string) => truncate(val) },
     },
     yaxis: {
       labels: {
@@ -717,13 +688,7 @@ function BrandDonutChart({ data, total = 0, loading = false }: BrandDonutChartPr
       </p>
       <div className="flex gap-2 sm:gap-3">
         <div className="flex-shrink-0" ref={wrapperRef}>
-          <ReactApexChart
-            options={options}
-            series={series}
-            type="donut"
-            height={180}
-            width={160}
-          />
+          <ReactApexChart options={options} series={series} type="donut" height={180} width={160} />
         </div>
         <div className="flex-1 overflow-y-auto max-h-[200px] flex flex-col gap-1 sm:gap-1.5 pr-1">
           {chartData.map((brand, idx) => {
@@ -741,10 +706,7 @@ function BrandDonutChart({ data, total = 0, loading = false }: BrandDonutChartPr
                 <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
                   <span
                     className="flex-shrink-0 w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full transition-transform duration-150"
-                    style={{
-                      background: PALETTE[idx % PALETTE.length],
-                      transform: isSelected ? "scale(1.4)" : "scale(1)",
-                    }}
+                    style={{ background: PALETTE[idx % PALETTE.length], transform: isSelected ? "scale(1.4)" : "scale(1)" }}
                   />
                   <span className={`text-[10px] sm:text-[11px] truncate transition-colors ${isSelected ? "text-gray-900 font-semibold" : "text-gray-700"}`}>
                     {brand.brand}
@@ -800,8 +762,7 @@ function TrendChart({
       year = now.getFullYear();
       month = now.getMonth();
     }
-    const lastDay = new Date(year, month + 1, 0).getDate();
-    return lastDay;
+    return new Date(year, month + 1, 0).getDate();
   }, [currentMonth]);
 
   const trendCurrent = React.useMemo(() => {
@@ -865,7 +826,7 @@ function TrendChart({
           <div className="w-full sm:flex-1">
             <div className="bg-gray-200 animate-pulse rounded h-[160px] sm:h-[200px] w-full" />
           </div>
-          <div className="w-full sm:flex-shrink-0 sm:w-[130px] bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex flex-row sm:flex-col gap-3 sm:gap-2 items-center sm:items-center justify-between sm:justify-center">
+          <div className="w-full sm:flex-shrink-0 sm:w-[130px] bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex flex-row sm:flex-col gap-3 sm:gap-2 items-center justify-between sm:justify-center">
             <div className="bg-gray-200 animate-pulse rounded h-3 w-20" />
             <div className="bg-gray-200 animate-pulse rounded h-7 w-16" />
             <div className="bg-gray-200 animate-pulse rounded h-3 w-14" />
@@ -890,8 +851,7 @@ function TrendChart({
             <span className="inline-block w-5 sm:w-6 h-[2px] bg-blue-500 rounded" /> {currentLabel}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block w-5 sm:w-6 border-t-2 border-dashed border-gray-400" />{" "}
-            {prevLabel}
+            <span className="inline-block w-5 sm:w-6 border-t-2 border-dashed border-gray-400" />{" "}{prevLabel}
           </span>
         </div>
       </div>
@@ -899,15 +859,11 @@ function TrendChart({
         <div className="w-full sm:flex-1 min-w-0">
           <ReactApexChart
             options={options}
-            series={[
-              { name: currentLabel, data: trendCurrent },
-              { name: prevLabel, data: trendPrev },
-            ]}
+            series={[{ name: currentLabel, data: trendCurrent }, { name: prevLabel, data: trendPrev }]}
             type="line"
             height={180}
           />
         </div>
-        {/* Summary badge — horizontal on mobile, vertical on desktop */}
         <div className="w-full sm:flex-shrink-0 sm:w-[130px] bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex flex-row sm:flex-col items-center gap-4 sm:gap-0 sm:text-center justify-around sm:justify-start">
           <p className="text-[10px] text-gray-400 font-semibold tracking-wider uppercase sm:mb-1">
             TOTAL {currentLabel.toUpperCase()}
@@ -931,9 +887,10 @@ function TrendChart({
 interface OutletRiskOverviewProps {
   data?: OutletRiskResponse | null;
   loading?: boolean;
+  onLihatSemua?: (type: "belumDikunjungi" | "fotoRendah" | "doubleCoverage") => void;
 }
 
-function OutletRiskOverview({ data, loading = false }: OutletRiskOverviewProps) {
+function OutletRiskOverview({ data, loading = false, onLihatSemua }: OutletRiskOverviewProps) {
   if (loading) {
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 sm:px-5 py-4 w-full">
@@ -975,7 +932,6 @@ function OutletRiskOverview({ data, loading = false }: OutletRiskOverviewProps) 
       <p className="text-[10px] sm:text-[11px] font-bold tracking-widest uppercase text-gray-600 mb-4">
         OUTLET RISK OVERVIEW
       </p>
-      {/* Mobile: stacked sections with divider; Desktop: 3 columns */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
 
         {/* Belum Dikunjungi */}
@@ -994,7 +950,10 @@ function OutletRiskOverview({ data, loading = false }: OutletRiskOverviewProps) 
               </p>
             ))}
           </div>
-          <button className="mt-2 flex items-center gap-1 text-[11px] sm:text-[12px] font-medium text-blue-600 hover:underline">
+          <button
+            onClick={() => onLihatSemua?.("belumDikunjungi")}
+            className="mt-2 flex items-center gap-1 text-[11px] sm:text-[12px] font-medium text-blue-600 hover:underline"
+          >
             Lihat semua <span>→</span>
           </button>
         </div>
@@ -1016,7 +975,10 @@ function OutletRiskOverview({ data, loading = false }: OutletRiskOverviewProps) 
               </div>
             ))}
           </div>
-          <button className="mt-2 flex items-center gap-1 text-[11px] sm:text-[12px] font-medium text-blue-600 hover:underline">
+          <button
+            onClick={() => onLihatSemua?.("fotoRendah")}
+            className="mt-2 flex items-center gap-1 text-[11px] sm:text-[12px] font-medium text-blue-600 hover:underline"
+          >
             Lihat semua <span>→</span>
           </button>
         </div>
@@ -1038,7 +1000,10 @@ function OutletRiskOverview({ data, loading = false }: OutletRiskOverviewProps) 
               </div>
             ))}
           </div>
-          <button className="mt-2 flex items-center gap-1 text-[11px] sm:text-[12px] font-medium text-blue-600 hover:underline">
+          <button
+            onClick={() => onLihatSemua?.("doubleCoverage")}
+            className="mt-2 flex items-center gap-1 text-[11px] sm:text-[12px] font-medium text-blue-600 hover:underline"
+          >
             Lihat semua <span>→</span>
           </button>
         </div>
@@ -1068,8 +1033,7 @@ export default function ChillerOverviewPage() {
   const [loadingTrend, setLoadingTrend] = useState(true);
   const [loadingOutletRisk, setLoadingOutletRisk] = useState(true);
 
-  const isLoading =
-    loadingOverview || loadingPerformance || loadingSalesman || loadingTrend || loadingOutletRisk;
+  const isLoading = loadingOverview || loadingPerformance || loadingSalesman || loadingTrend || loadingOutletRisk;
 
   const [overviewData, setOverviewData] = useState<OverviewResponse | null>(null);
   const [performanceData, setPerformanceData] = useState<PerformanceResponse | null>(null);
@@ -1077,6 +1041,46 @@ export default function ChillerOverviewPage() {
   const [trendData, setTrendData] = useState<DailyTrendResponse | null>(null);
   const [outletRiskData, setOutletRiskData] = useState<OutletRiskResponse | null>(null);
 
+  // ─── LOV Modal state ───────────────────────────────────────────────────────
+  const [lovOpen, setLovOpen] = useState(false);
+  const [lovVariant, setLovVariant] = useState<LovModalVariant>("salesman-top");
+  const [lovTitle, setLovTitle] = useState("");
+
+  const openLov = (variant: LovModalVariant, title: string) => {
+    setLovVariant(variant);
+    setLovTitle(title);
+    setLovOpen(true);
+  };
+
+  const handleLovFetch = async ({
+    page,
+    limit,
+    search,
+  }: {
+    page: number;
+    limit: number;
+    search: string;
+  }): Promise<{ data: LovModalRow[]; pagination: any }> => {
+    const apiRegion  = selectedRegion  === "Semua" ? undefined : selectedRegion;
+    const apiChannel = selectedChannel === "Semua" ? undefined : selectedChannel;
+
+    switch (lovVariant) {
+      case "salesman-top":
+        return getAllSalesmanRanking(selectedMonth, selectedEndDate, apiRegion, apiChannel, "top", page, limit, search) as any;
+      case "salesman-bottom":
+        return getAllSalesmanRanking(selectedMonth, selectedEndDate, apiRegion, apiChannel, "bottom", page, limit, search) as any;
+      case "not-visited":
+        return getAllNotVisitedOutlets(selectedMonth, selectedEndDate, apiRegion, apiChannel, page, limit, search) as any;
+      case "low-photo":
+        return getAllLowPhotoOutlets(selectedMonth, selectedEndDate, apiRegion, apiChannel, page, limit, search) as any;
+      case "double-coverage":
+        return getAllDoubleOutlets(selectedMonth, selectedEndDate, apiRegion, apiChannel, page, limit, search) as any;
+      default:
+        return { data: [], pagination: { page: 1, limit, totalRows: 0, totalPages: 0 } };
+    }
+  };
+
+  // ─── Data fetching ─────────────────────────────────────────────────────────
   useEffect(() => {
     setLoadingFilters(true);
     getFilters()
@@ -1157,10 +1161,7 @@ export default function ChillerOverviewPage() {
           <div className="bg-red-50 border border-red-200 rounded-2xl px-6 sm:px-8 py-5 sm:py-6 text-center max-w-md w-full">
             <p className="text-red-600 font-bold text-sm sm:text-base mb-1">Gagal memuat data</p>
             <p className="text-red-400 text-xs sm:text-sm mb-4">{error}</p>
-            <button
-              onClick={handleRefresh}
-              className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600"
-            >
+            <button onClick={handleRefresh} className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600">
               Coba Lagi
             </button>
           </div>
@@ -1182,7 +1183,7 @@ export default function ChillerOverviewPage() {
         channelOptions={channelOptions}
       />
 
-      {/* Stat Cards — 2 cols mobile, 3 cols tablet, 5 cols desktop */}
+      {/* Stat Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         {loadingOverview ? (
           [1, 2, 3, 4, 5].map((i) => <StatCardSkeleton key={i} />)
@@ -1190,58 +1191,37 @@ export default function ChillerOverviewPage() {
           <>
             <StatCard
               icon={<IconCamera className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />}
-              iconBg="bg-blue-100"
-              iconColor="text-blue-500"
+              iconBg="bg-blue-100" iconColor="text-blue-500"
               label="Total Foto"
               value={stats.totalFoto.value.toLocaleString("id-ID")}
-              trend={{
-                label: `vs ${prevMonthLabel}`,
-                direction: stats.totalFoto.changeDirection,
-                value: Math.abs(stats.totalFoto.changePct ?? 0).toFixed(1) + "%",
-              }}
+              trend={{ label: `vs ${prevMonthLabel}`, direction: stats.totalFoto.changeDirection, value: Math.abs(stats.totalFoto.changePct ?? 0).toFixed(1) + "%" }}
             />
             <StatCard
               icon={<IconStore className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />}
-              iconBg="bg-green-100"
-              iconColor="text-green-500"
+              iconBg="bg-green-100" iconColor="text-green-500"
               label="Coverage Outlet"
               value={stats.coverageOutlet.value.toFixed(1) + "%"}
               target={`Target ${stats.coverageOutlet.targetPct}%`}
-              trend={{
-                direction: stats.coverageOutlet.changeDirection,
-                value: Math.abs(stats.coverageOutlet.changePct ?? 0).toFixed(1) + "%",
-              }}
+              trend={{ direction: stats.coverageOutlet.changeDirection, value: Math.abs(stats.coverageOutlet.changePct ?? 0).toFixed(1) + "%" }}
             />
             <StatCard
               icon={<IconImage className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />}
-              iconBg="bg-purple-100"
-              iconColor="text-purple-500"
+              iconBg="bg-purple-100" iconColor="text-purple-500"
               label="Avg Foto / Outlet"
               value={stats.avgFotoPerOutlet.value.toString()}
-              trend={{
-                label: `vs ${prevMonthLabel}`,
-                direction: stats.avgFotoPerOutlet.changeDirection,
-                value: Math.abs(stats.avgFotoPerOutlet.changePct ?? 0).toFixed(1) + "%",
-              }}
+              trend={{ label: `vs ${prevMonthLabel}`, direction: stats.avgFotoPerOutlet.changeDirection, value: Math.abs(stats.avgFotoPerOutlet.changePct ?? 0).toFixed(1) + "%" }}
             />
             <StatCard
               icon={<IconUser className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />}
-              iconBg="bg-yellow-100"
-              iconColor="text-yellow-500"
+              iconBg="bg-yellow-100" iconColor="text-yellow-500"
               label="Active Salesman"
               value={stats.activeSalesman.value.toFixed(1) + "%"}
-              trend={{
-                label: `vs ${prevMonthLabel}`,
-                direction: stats.activeSalesman.changeDirection,
-                value: Math.abs(stats.activeSalesman.changePct ?? 0).toFixed(1) + "%",
-              }}
+              trend={{ label: `vs ${prevMonthLabel}`, direction: stats.activeSalesman.changeDirection, value: Math.abs(stats.activeSalesman.changePct ?? 0).toFixed(1) + "%" }}
             />
-            {/* Last card spans 2 cols on mobile to center it */}
             <div className="col-span-2 sm:col-span-1">
               <StatCard
                 icon={<IconBuilding className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />}
-                iconBg="bg-cyan-100"
-                iconColor="text-cyan-500"
+                iconBg="bg-cyan-100" iconColor="text-cyan-500"
                 label="Outlet Aktif"
                 value={stats.outletAktif.value.toString()}
                 target={`dari ${stats.outletAktif.totalOutlets} Outlet`}
@@ -1255,7 +1235,6 @@ export default function ChillerOverviewPage() {
       {(loadingOverview || loadingPerformance || loadingOutletRisk) ? (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 sm:px-5 py-4 w-full">
           <div className="h-3 w-28 bg-gray-200 animate-pulse rounded mb-4" />
-          {/* Mobile: horizontal scroll skeleton; Desktop: grid */}
           <div className="flex gap-3 overflow-x-auto sm:grid sm:grid-cols-3 lg:grid-cols-5">
             {[1,2,3,4,5].map((i) => (
               <div key={i} className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3 flex gap-3 items-start flex-shrink-0 sm:flex-shrink min-w-[200px] sm:min-w-0">
@@ -1294,9 +1273,7 @@ export default function ChillerOverviewPage() {
           insightTeam = {
             icon: <IconUsers />,
             variant: (isAhead ? "success" : "danger") as any,
-            text: isAhead
-              ? `**Team Bima ${absDiff}% lebih tinggi dibanding Arjuna**`
-              : `**Team Bima ${absDiff}% lebih rendah dibanding Arjuna**`,
+            text: isAhead ? `**Team Bima ${absDiff}% lebih tinggi dibanding Arjuna**` : `**Team Bima ${absDiff}% lebih rendah dibanding Arjuna**`,
           };
         }
 
@@ -1318,9 +1295,7 @@ export default function ChillerOverviewPage() {
         const insightDouble = {
           icon: <IconRefresh />,
           variant: (doubleCount > 0 ? "danger" : "success") as any,
-          text: doubleCount > 0
-            ? `**${doubleCount} outlet terjadi double visit (inefficient)**`
-            : `**Tidak ada double visit bulan ini**`,
+          text: doubleCount > 0 ? `**${doubleCount} outlet terjadi double visit (inefficient)**` : `**Tidak ada double visit bulan ini**`,
         };
 
         const fotoDir = stats?.totalFoto?.changeDirection ?? "up";
@@ -1334,11 +1309,10 @@ export default function ChillerOverviewPage() {
         };
 
         const items = [insightNotVisited, insightTeam, insightBrand, insightDouble, insightFoto].filter(Boolean) as any[];
-
         return <KeyInsights title="KEY INSIGHTS" items={items} />;
       })()}
 
-      {/* Performance Comparison — 1 col mobile, 2 cols tablet, 3 cols desktop */}
+      {/* Performance Comparison */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 w-full">
         <p className="text-[11px] sm:text-[13px] font-bold tracking-widest uppercase text-gray-700 mb-4">
           PERFORMANCE COMPARISON
@@ -1356,7 +1330,6 @@ export default function ChillerOverviewPage() {
             color="#10B981"
             loading={loadingPerformance}
           />
-          {/* On sm screens, brand chart spans full width */}
           <div className="sm:col-span-2 lg:col-span-1">
             <BrandDonutChart
               data={performanceData?.brand ?? []}
@@ -1367,7 +1340,7 @@ export default function ChillerOverviewPage() {
         </div>
       </div>
 
-      {/* Salesman Tables + Outlet Risk — 1 col mobile, stacked tablet, 3 cols desktop */}
+      {/* Salesman Tables + Outlet Risk */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
         {loadingSalesman ? (
           <>
@@ -1388,6 +1361,7 @@ export default function ChillerOverviewPage() {
               }))}
               maxFoto={salesmanData?.top5?.[0]?.totalPhotos ?? 1200}
               linkLabel="Lihat semua salesman"
+              onLinkClick={() => openLov("salesman-top", "Semua Top Salesman")}
             />
             <SalesmanRankTable
               title="BOTTOM 5 SALESMAN"
@@ -1400,8 +1374,17 @@ export default function ChillerOverviewPage() {
               }))}
               maxFoto={salesmanData?.bottom5?.[0]?.totalPhotos ?? 300}
               linkLabel="Lihat semua salesman"
+              onLinkClick={() => openLov("salesman-bottom", "Semua Bottom Salesman")}
             />
-            <OutletRiskOverview data={outletRiskData} loading={loadingOutletRisk} />
+            <OutletRiskOverview
+              data={outletRiskData}
+              loading={loadingOutletRisk}
+              onLihatSemua={(type) => {
+                if (type === "belumDikunjungi") openLov("not-visited", "Outlet Belum Dikunjungi");
+                if (type === "fotoRendah")      openLov("low-photo",   "Outlet Foto Rendah");
+                if (type === "doubleCoverage")  openLov("double-coverage", "Outlet Double Coverage");
+              }}
+            />
           </>
         )}
       </div>
@@ -1414,6 +1397,15 @@ export default function ChillerOverviewPage() {
         currentLabel={getMonthLabel(selectedMonth)}
         prevLabel={prevMonthLabel}
         loading={loadingTrend}
+      />
+
+      {/* LOV Modal */}
+      <LovModal
+        open={lovOpen}
+        onClose={() => setLovOpen(false)}
+        variant={lovVariant}
+        title={lovTitle}
+        onFetch={handleLovFetch}
       />
 
     </div>

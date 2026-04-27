@@ -15,8 +15,19 @@ const ACTIVE_OUTLET_FILTER = `szActivityStatus IN ('ACT', 'NEW') AND szStatus IN
 function getCustomerFilter(region, channel, alias = "t.szCustomerId") {
   let filter = "";
 
+  if (region && region !== "All") filter += " AND r.szRegionName = @region";
   if (channel && channel !== "All") filter += " AND c.szCategory_1Desc = @channel";
   if (!filter) return "";
+
+  const needsRegion = region && region !== "All";
+  if (needsRegion) {
+    return ` AND EXISTS (
+      SELECT 1 FROM X_VW_SAM_AR_Customer c WITH(NOLOCK)
+      JOIN BOS_PI_Employee e WITH(NOLOCK) ON e.szEmployeeId = c.szSalesId
+      JOIN VW_Region r WITH(NOLOCK) ON r.szWorkplaceId = e.szWorkplaceId
+      WHERE c.szCustId = ${alias} ${filter}
+    )`;
+  }
 
   return ` AND EXISTS (SELECT 1 FROM X_VW_SAM_AR_Customer c WITH(NOLOCK) WHERE c.szCustId = ${alias} ${filter})`;
 }
@@ -55,7 +66,14 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
     `);
 
   let totalOutletFilter = "";
-  if (channel && channel !== "All") totalOutletFilter += " AND szCategory_1Desc = @channel";
+  let totalOutletJoin = "";
+  if (channel && channel !== "All") totalOutletFilter += " AND c2.szCategory_1Desc = @channel";
+  if (region && region !== "All") {
+    totalOutletJoin = `
+      JOIN BOS_PI_Employee e2 WITH(NOLOCK) ON e2.szEmployeeId = c2.szSalesId
+      JOIN VW_Region r2 WITH(NOLOCK) ON r2.szWorkplaceId = e2.szWorkplaceId`;
+    totalOutletFilter += " AND r2.szRegionName = @region";
+  }
 
   const qCoverage = bindCustomerParams(req(db), region, channel)
     .input("s",  sql.Date, start).input("e",  sql.Date, endDt)
@@ -65,9 +83,12 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
         COUNT(DISTINCT CASE WHEN t.dtmVisit >= @s  AND t.dtmVisit < @e  THEN t.szCustomerId END) AS [visitedCurrent],
         COUNT(DISTINCT CASE WHEN t.dtmVisit >= @ps AND t.dtmVisit < @pe THEN t.szCustomerId END) AS [visitedPrev],
         (
-          SELECT COUNT(DISTINCT szCustId)
-          FROM X_VW_SAM_AR_Customer WITH(NOLOCK)
-          WHERE ${ACTIVE_OUTLET_FILTER} ${totalOutletFilter}
+          SELECT COUNT(DISTINCT c2.szCustId)
+          FROM X_VW_SAM_AR_Customer c2 WITH(NOLOCK)
+          ${totalOutletJoin}
+          WHERE c2.szActivityStatus IN ('ACT', 'NEW') 
+            AND c2.szStatus IN ('ACT', 'FDE')
+            ${totalOutletFilter}
         ) AS [totalOutlet]
       FROM SAM_MD_TVisibility t WITH(NOLOCK)
       WHERE t.szDisplayType IN ('Regular','Reguler')
@@ -308,9 +329,120 @@ const getSalesmanRanking = async (start, end, region, channel) => {
   };
 };
 
+const getAllSalesmanRanking = async (start, end, region, channel, sortBy = "top", page = 1, limit = 20, search = "") => {
+  const db = await getPool();
+  const endDt = endPlusOne(end);
+  const filterSql = getCustomerFilter(region, channel);
+  const offset = (page - 1) * limit;
+ 
+  let totalOutletFilter = "";
+  if (channel && channel !== "All") totalOutletFilter += " AND szCategory_1Desc = @channel";
+ 
+  const orderDir = sortBy === "bottom" ? "ASC" : "DESC";
+ 
+  // Jika bottom, kita filter yang totalPhotos > 0 (sama seperti logika di getSalesmanRanking)
+  const searchTrim = (search || "").trim();
+  const searchFilter = searchTrim ? "AND (e.szName LIKE @search OR e.szEmployeeId LIKE @search)" : "";
+  const bottomFilter = sortBy === "bottom"
+    ? `WHERE totalPhotos > 0 ${searchTrim ? "AND (salesman LIKE @search OR szSalesId LIKE @search)" : ""}`
+    : searchTrim ? "WHERE (salesman LIKE @search OR szSalesId LIKE @search)" : "";
+ 
+  const baseCTE = `
+    ;WITH VisitBase AS (
+      SELECT t.szDocId, t.szSalesId, t.szCustomerId
+      FROM SAM_MD_TVisibility t WITH(NOLOCK)
+      WHERE t.dtmVisit >= @s AND t.dtmVisit < @e
+        AND t.szDisplayType IN ('Regular','Reguler')
+        ${filterSql}
+    ),
+    SalesVisit AS (
+      SELECT
+        szSalesId,
+        COUNT(DISTINCT szCustomerId) AS [visitedOutlets]
+      FROM VisitBase
+      GROUP BY szSalesId
+    ),
+    ValidPhotos AS (
+      SELECT vb.szSalesId, ti.szImageUrl
+      FROM VisitBase vb
+      JOIN SAM_MD_TVisibilityItem ti WITH(NOLOCK) ON ti.szDocId = vb.szDocId
+      WHERE ti.szImageUrl IS NOT NULL AND ti.szImageUrl <> ''
+        AND ${NPN_EXISTS}
+    ),
+    PhotoCount AS (
+      SELECT szSalesId, COUNT(DISTINCT szImageUrl) AS [totalPhotos]
+      FROM ValidPhotos
+      GROUP BY szSalesId
+    ),
+    SalesAssigned AS (
+      SELECT szSalesId, COUNT(DISTINCT szCustId) AS [totalAssignedOutlets]
+      FROM X_VW_SAM_AR_Customer WITH(NOLOCK)
+      WHERE ${ACTIVE_OUTLET_FILTER} ${totalOutletFilter}
+      GROUP BY szSalesId
+    ),
+    SalesActivity AS (
+      SELECT
+        sv.szSalesId,
+        e.szName                  AS [salesman],
+        d.szName                  AS [team],
+        ISNULL(pc.totalPhotos, 0) AS [totalPhotos],
+        sv.visitedOutlets         AS [visitedOutlets],
+        ISNULL(sa.totalAssignedOutlets, sv.visitedOutlets) AS [totalAssignedOutlets],
+        CASE 
+          WHEN ISNULL(sa.totalAssignedOutlets, 0) = 0 THEN 100.0
+          WHEN sv.visitedOutlets > sa.totalAssignedOutlets THEN 100.0
+          ELSE ROUND(CAST(sv.visitedOutlets AS FLOAT) / sa.totalAssignedOutlets * 100, 1)
+        END                       AS [outletCoverage]
+      FROM SalesVisit sv
+      JOIN BOS_PI_Employee   e WITH(NOLOCK) ON e.szEmployeeId   = sv.szSalesId
+      JOIN BOS_PI_Department d WITH(NOLOCK) ON d.szDepartmentId = e.szDepartmentId
+      LEFT JOIN PhotoCount   pc            ON pc.szSalesId      = sv.szSalesId
+      LEFT JOIN SalesAssigned sa           ON sa.szSalesId      = sv.szSalesId
+    ),
+    Filtered AS (
+      SELECT * FROM SalesActivity
+      ${bottomFilter}
+    ),
+    TotalCount AS (
+      SELECT COUNT(*) AS [totalRows] FROM Filtered
+    )
+  `;
+ 
+  const qBuilder = bindCustomerParams(req(db), region, channel)
+    .input("s", sql.Date, start)
+    .input("e", sql.Date, endDt)
+    .input("offset", sql.Int, offset)
+    .input("limit", sql.Int, limit);
+  if (searchTrim) qBuilder.input("search", sql.VarChar, `%${searchTrim}%`);
+
+  const result = await qBuilder.query(`
+      ${baseCTE}
+      SELECT
+        f.salesman, f.team, f.totalPhotos, f.visitedOutlets,
+        f.totalAssignedOutlets, f.outletCoverage,
+        tc.totalRows
+      FROM Filtered f
+      CROSS JOIN TotalCount tc
+      ORDER BY f.totalPhotos ${orderDir}
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+      OPTION (MAXDOP 8, RECOMPILE)
+    `);
+ 
+  const totalRows = result.recordset[0]?.totalRows || 0;
+  return {
+    data: result.recordset.map(({ totalRows: _, ...row }) => row),
+    pagination: {
+      page,
+      limit,
+      totalRows,
+      totalPages: Math.ceil(totalRows / limit),
+    },
+  };
+};
+
 
 const riskCache = new Map();
-const RISK_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+const RISK_CACHE_TTL = 15 * 60 * 1000;
 
 const getOutletRisk = async (start, end, weekStart, weekEnd, region, channel) => {
   const cacheKey = `${start}_${end}_${weekStart}_${weekEnd}_${region}_${channel}`;
@@ -458,6 +590,196 @@ const getOutletRisk = async (start, end, weekStart, weekEnd, region, channel) =>
   return data;
 };
 
+const getAllNotVisitedOutlets = async (start, end, region, channel, page = 1, limit = 20, search = "") => {
+  const db = await getPool();
+  const endDt = endPlusOne(end);
+  const offset = (page - 1) * limit;
+  const searchTrim = (search || "").trim();
+  const searchFilter = searchTrim ? "AND (nv.szCustId LIKE @search OR nv.customerName LIKE @search)" : "";
+ 
+  let totalOutletFilter = "";
+  if (channel && channel !== "All") totalOutletFilter += " AND szCategory_1Desc = @channel";
+ 
+  const filterRegionJoin =
+    region && region !== "All"
+      ? `JOIN BOS_PI_Employee e2 WITH(NOLOCK) ON e2.szEmployeeId = a.szSalesId
+         JOIN VW_Region r2 WITH(NOLOCK) ON r2.szWorkplaceId = e2.szWorkplaceId`
+      : "";
+  const filterRegionWhere = region && region !== "All" ? " AND r2.szRegionName = @region" : "";
+ 
+  const qBuilder2 = bindCustomerParams(req(db), region, channel)
+    .input("s", sql.Date, start)
+    .input("e", sql.Date, endDt)
+    .input("offset", sql.Int, offset)
+    .input("limit", sql.Int, limit);
+  if (searchTrim) qBuilder2.input("search", sql.VarChar, `%${searchTrim}%`);
+
+  const result = await qBuilder2.query(`
+      ;WITH ActiveAssigned AS (
+        SELECT DISTINCT a.szCustId, a.szName, a.szSalesId
+        FROM X_VW_SAM_AR_Customer a WITH(NOLOCK)
+        ${filterRegionJoin}
+        WHERE ${ACTIVE_OUTLET_FILTER} ${totalOutletFilter}
+          AND a.szSalesId IS NOT NULL AND a.szSalesId <> ''
+          ${filterRegionWhere}
+      ),
+      NotVisited AS (
+        SELECT a.szCustId, a.szName AS [customerName]
+        FROM ActiveAssigned a
+        LEFT JOIN SAM_MD_TVisibility t WITH(NOLOCK)
+          ON t.szCustomerId = a.szCustId
+          AND t.dtmVisit >= @s AND t.dtmVisit < @e
+          AND t.szDisplayType IN ('Regular','Reguler')
+        WHERE t.szDocId IS NULL
+      ),
+      TotalCount AS (
+        SELECT COUNT(*) AS [totalRows] FROM NotVisited
+        WHERE 1=1 ${searchFilter}
+      )
+      SELECT
+        nv.szCustId AS [customerId],
+        nv.customerName,
+        tc.totalRows
+      FROM NotVisited nv
+      CROSS JOIN TotalCount tc
+      WHERE 1=1 ${searchFilter}
+      ORDER BY nv.customerName
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+      OPTION (MAXDOP 4)
+    `);
+ 
+  const totalRows = result.recordset[0]?.totalRows || 0;
+  return {
+    data: result.recordset.map(({ totalRows: _, ...row }) => row),
+    pagination: {
+      page,
+      limit,
+      totalRows,
+      totalPages: Math.ceil(totalRows / limit),
+    },
+  };
+};
+
+const getAllLowPhotoOutlets = async (start, end, region, channel, page = 1, limit = 20, search = "") => {
+  const db = await getPool();
+  const endDt = endPlusOne(end);
+  const filterSql = getCustomerFilter(region, channel);
+  const offset = (page - 1) * limit;
+  const searchTrim = (search || "").trim();
+  const searchFilter = searchTrim ? "AND (lp.customerId LIKE @search OR lp.customerName LIKE @search)" : "";
+ 
+  const qBuilder3 = bindCustomerParams(req(db), region, channel)
+    .input("s", sql.Date, start)
+    .input("e", sql.Date, endDt)
+    .input("offset", sql.Int, offset)
+    .input("limit", sql.Int, limit);
+  if (searchTrim) qBuilder3.input("search", sql.VarChar, `%${searchTrim}%`);
+
+  const result = await qBuilder3.query(`
+      ;WITH LowPhoto AS (
+        SELECT
+          t.szCustomerId AS [customerId],
+          MAX(c.szName)  AS [customerName],
+          COUNT(DISTINCT ti.szImageUrl) AS [totalPhotos]
+        FROM SAM_MD_TVisibility t WITH(NOLOCK)
+        JOIN SAM_MD_TVisibilityItem ti WITH(NOLOCK) ON ti.szDocId = t.szDocId
+        JOIN X_VW_SAM_AR_Customer   c  WITH(NOLOCK) ON c.szCustId = t.szCustomerId
+        WHERE t.dtmVisit >= @s AND t.dtmVisit < @e
+          AND t.szDisplayType IN ('Regular','Reguler')
+          AND ti.szImageUrl IS NOT NULL AND ti.szImageUrl <> ''
+          AND ${NPN_EXISTS} ${filterSql}
+        GROUP BY t.szCustomerId
+        HAVING COUNT(DISTINCT ti.szImageUrl) < 3
+      ),
+      TotalCount AS (
+        SELECT COUNT(*) AS [totalRows] FROM LowPhoto
+        WHERE 1=1 ${searchFilter}
+      )
+      SELECT
+        lp.customerId, lp.customerName, lp.totalPhotos,
+        tc.totalRows
+      FROM LowPhoto lp
+      CROSS JOIN TotalCount tc
+      WHERE 1=1 ${searchFilter}
+      ORDER BY lp.totalPhotos ASC
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+      OPTION (MAXDOP 4)
+    `);
+ 
+  const totalRows = result.recordset[0]?.totalRows || 0;
+  return {
+    data: result.recordset.map(({ totalRows: _, ...row }) => row),
+    pagination: {
+      page,
+      limit,
+      totalRows,
+      totalPages: Math.ceil(totalRows / limit),
+    },
+  };
+};
+
+const getAllDoubleOutlets = async (start, end, region, channel, page = 1, limit = 20, search = "") => {
+  const db = await getPool();
+  const endDt = endPlusOne(end);
+  const filterSql = getCustomerFilter(region, channel);
+  const offset = (page - 1) * limit;
+  const searchTrim = (search || "").trim();
+  const searchFilter = searchTrim ? "AND (dc.szCustomerId LIKE @search OR c.szName LIKE @search)" : "";
+ 
+  const qBuilder4 = bindCustomerParams(req(db), region, channel)
+    .input("s", sql.Date, start)
+    .input("e", sql.Date, endDt)
+    .input("offset", sql.Int, offset)
+    .input("limit", sql.Int, limit);
+  if (searchTrim) qBuilder4.input("search", sql.VarChar, `%${searchTrim}%`);
+
+  const result = await qBuilder4.query(`
+      ;WITH SP AS (
+        SELECT t.szCustomerId, t.szSalesId
+        FROM SAM_MD_TVisibility t WITH(NOLOCK)
+        WHERE t.dtmVisit >= @s AND t.dtmVisit < @e
+          AND t.szDisplayType IN ('Regular','Reguler')
+          AND t.szSalesId IS NOT NULL AND t.szSalesId <> ''
+          ${filterSql}
+        GROUP BY t.szCustomerId, t.szSalesId
+      ),
+      DoubleSales AS (
+        SELECT szCustomerId, COUNT(*) AS [salesmanCount]
+        FROM SP
+        GROUP BY szCustomerId
+        HAVING COUNT(*) > 1
+      ),
+      TotalCount AS (
+        SELECT COUNT(*) AS [totalRows]
+        FROM DoubleSales dc
+        JOIN X_VW_SAM_AR_Customer c WITH(NOLOCK) ON c.szCustId = dc.szCustomerId
+        WHERE 1=1 ${searchFilter}
+      )
+      SELECT
+        dc.szCustomerId AS [customerId],
+        c.szName        AS [customerName],
+        dc.salesmanCount,
+        tc.totalRows
+      FROM DoubleSales dc
+      JOIN X_VW_SAM_AR_Customer c WITH(NOLOCK) ON c.szCustId = dc.szCustomerId
+      CROSS JOIN TotalCount tc
+      WHERE 1=1 ${searchFilter}
+      ORDER BY dc.salesmanCount DESC
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+      OPTION (MAXDOP 4)
+    `);
+ 
+  const totalRows = result.recordset[0]?.totalRows || 0;
+  return {
+    data: result.recordset.map(({ totalRows: _, ...row }) => row),
+    pagination: {
+      page,
+      limit,
+      totalRows,
+      totalPages: Math.ceil(totalRows / limit),
+    },
+  };
+};
 
 const getDailyTrend = async (start, end, prevStart, prevEnd, region, channel) => {
   const db = await getPool();
@@ -612,7 +934,7 @@ const getFilters = async () => {
   const db = await getPool();
   return Promise.all([
     db.request().query(`SELECT DISTINCT CC1 AS [channel] FROM AVO_SAM_Report_DisplayCompliance WITH(NOLOCK) WHERE CC1 IS NOT NULL AND CC1 <> '' ORDER BY CC1 OPTION (MAXDOP 4, RECOMPILE)`),
-    db.request().query(`SELECT DISTINCT Region AS [region] FROM AVO_SAM_Report_DisplayCompliance WITH(NOLOCK) WHERE Region IS NOT NULL AND Region <> '' ORDER BY Region OPTION (MAXDOP 4, RECOMPILE)`),
+    db.request().query(`SELECT DISTINCT szRegionName AS [region] FROM VW_Region WITH(NOLOCK) WHERE szRegionName IS NOT NULL AND szRegionName <> '' ORDER BY szRegionName OPTION (MAXDOP 4, RECOMPILE)`),
   ]);
 };
 
@@ -627,4 +949,8 @@ module.exports = {
   getOutletRisk,
   getDailyTrend,
   getFilters,
+  getAllSalesmanRanking,
+  getAllDoubleOutlets,
+  getAllLowPhotoOutlets,
+  getAllNotVisitedOutlets,
 };

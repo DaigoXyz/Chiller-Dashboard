@@ -243,6 +243,26 @@ const withCache = (fn, prefix) => async (...args) => {
   return data;
 };
 
+const getAllSalesmanRanking = async (start, end, region, channel, sortBy, page, limit, search = "") => {
+  await ensureEsData(start, end);
+  return repo.getAllSalesmanRanking(start, end, region, channel, sortBy, page, limit, search);
+};
+
+const getAllNotVisitedOutlets = async (start, end, region, channel, page, limit, search = "") => {
+  await ensureEsData(start, end);
+  return sqlRepo.getAllNotVisitedOutlets(start, end, region, channel, page, limit, search);
+};
+
+const getAllLowPhotoOutlets = async (start, end, region, channel, page, limit, search = "") => {
+  await ensureEsData(start, end);
+  return sqlRepo.getAllLowPhotoOutlets(start, end, region, channel, page, limit, search);
+};
+
+const getAllDoubleOutlets = async (start, end, region, channel, page, limit, search = "") => {
+  await ensureEsData(start, end);
+  return sqlRepo.getAllDoubleOutlets(start, end, region, channel, page, limit, search);
+};
+
 module.exports = {
   getDailyStats: withCache(getDailyStats, "daily"),
   getOverview: withCache(getOverview, "overview"),
@@ -251,4 +271,8 @@ module.exports = {
   getOutletRisk: withCache(getOutletRisk, "risk"),
   getDailyTrend: withCache(getDailyTrend, "trend"),
   getFilters: withCache(getFilters, "filters"),
+  getAllSalesmanRanking: withCache(getAllSalesmanRanking, "all_ranking"),
+  getAllNotVisitedOutlets: withCache(getAllNotVisitedOutlets, "all_not_visited"),
+  getAllLowPhotoOutlets: withCache(getAllLowPhotoOutlets, "all_low_photo"),
+  getAllDoubleOutlets: withCache(getAllDoubleOutlets, "all_double"),
 };

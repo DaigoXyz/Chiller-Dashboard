@@ -182,8 +182,7 @@ async function syncCustomers() {
            c.szActivityStatus AS [activityStatus], c.szCategory_1Desc AS [channel],
            r.szRegionName AS [region], c.szSalesId AS [salesId]
     FROM X_VW_SAM_AR_Customer c WITH(NOLOCK)
-    LEFT JOIN BOS_PI_Employee e WITH(NOLOCK) ON e.szEmployeeId = c.szSalesId
-    LEFT JOIN VW_Region r WITH(NOLOCK) ON r.szWorkplaceId = e.szWorkplaceId
+    LEFT JOIN VW_Region r WITH(NOLOCK) ON r.szWorkplaceId = c.szSalWorkplaceId
     WHERE c.szActivityStatus IN ('ACT', 'NEW') AND c.szStatus IN ('ACT', 'FDE')
   `);
 

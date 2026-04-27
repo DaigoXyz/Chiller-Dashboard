@@ -136,13 +136,13 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
     },
   });
 
-  const custQuery = { bool: { filter: [] } };
-  if (region && region !== "All") custQuery.bool.filter.push({ term: { region } });
-  if (channel && channel !== "All") custQuery.bool.filter.push({ term: { channel } });
+  const custFilter = { bool: { filter: [] } };
+  if (region && region !== "All") custFilter.bool.filter.push({ term: { region } });
+  if (channel && channel !== "All") custFilter.bool.filter.push({ term: { channel } });
 
   const totalOutletResp = await es.count({
     index: INDEX.CUSTOMERS,
-    body: { query: custQuery }
+    body: { query: custFilter.bool.filter.length > 0 ? custFilter : { match_all: {} } },
   });
 
   const totalSalesResp = await es.search({
@@ -368,6 +368,109 @@ const getSalesmanRanking = async (start, end, region, channel) => {
   return { top5, bottom5 };
 };
 
+const getAllSalesmanRanking = async (start, end, region, channel, sortBy = "top", page = 1, limit = 20, search = "") => {
+  const endDt = endPlusOne(end);
+  const es = getClient();
+ 
+  const [resp, custResp] = await Promise.all([
+    es.search({
+      index: INDEX.VISITS,
+      body: {
+        size: 0,
+        query: { bool: { filter: baseFilter(start, endDt, region, channel) } },
+        aggs: {
+          salesmen: {
+            terms: { field: "salesId", size: 10000 },
+            aggs: {
+              salesName:      { terms: { field: "salesName.keyword", size: 1 } },
+              department:     { terms: { field: "departmentName", size: 1 } },
+              photo_count: {
+                filter: { term: { isValidNPN: true } },
+                aggs: {
+                  count: { cardinality: { field: "imageUrl", precision_threshold: 5000 } },
+                },
+              },
+              visited_outlets: { cardinality: { field: "customerId", precision_threshold: 5000 } },
+            },
+          },
+        },
+      },
+    }),
+    (() => {
+      const custQuery = { bool: { filter: [] } };
+      if (region && region !== "All") custQuery.bool.filter.push({ term: { region } });
+      if (channel && channel !== "All") custQuery.bool.filter.push({ term: { channel } });
+      return es.search({
+        index: INDEX.CUSTOMERS,
+        body: {
+          size: 0,
+          query: custQuery,
+          aggs: {
+            salesmen: {
+              terms: { field: "salesId", size: 10000 },
+              aggs: { assigned: { value_count: { field: "custId" } } },
+            },
+          },
+        },
+      });
+    })(),
+  ]);
+ 
+  const assignedMap = {};
+  for (const b of custResp.aggregations.salesmen.buckets) {
+    assignedMap[b.key] = b.assigned.value;
+  }
+ 
+  let allSalesmen = resp.aggregations.salesmen.buckets.map((b) => {
+    const visited  = b.visited_outlets.value;
+    const assigned = assignedMap[b.key] || visited;
+    const coverage =
+      assigned > 0 ? Math.min(100, Math.round((visited / assigned) * 1000) / 10) : 100;
+ 
+    return {
+      salesman:            b.salesName.buckets[0]?.key || b.key,
+      team:                b.department.buckets[0]?.key || "Unknown",
+      totalPhotos:         b.photo_count.count.value,
+      visitedOutlets:      visited,
+      totalAssignedOutlets: assigned,
+      outletCoverage:      coverage,
+    };
+  });
+ 
+  // Urutkan sesuai sortBy
+  if (sortBy === "bottom") {
+    allSalesmen = allSalesmen
+      .filter((s) => s.totalPhotos > 0)
+      .sort((a, b) => a.totalPhotos - b.totalPhotos);
+  } else {
+    allSalesmen.sort((a, b) => b.totalPhotos - a.totalPhotos);
+  }
+
+  // Filter by search
+  const searchTrim = (search || "").trim().toLowerCase();
+  if (searchTrim) {
+    allSalesmen = allSalesmen.filter(
+      (s) =>
+        s.salesman.toLowerCase().includes(searchTrim) ||
+        s.team.toLowerCase().includes(searchTrim)
+    );
+  }
+ 
+  const totalRows  = allSalesmen.length;
+  const offset     = (page - 1) * limit;
+  const data       = allSalesmen.slice(offset, offset + limit);
+ 
+  return {
+    data,
+    pagination: {
+      page,
+      limit,
+      totalRows,
+      totalPages: Math.ceil(totalRows / limit),
+    },
+  };
+};
+
 const getOutletRisk = async (start, end, weekStart, weekEnd, region, channel) => {
   const endDt = endPlusOne(end);
   const es = getClient();
@@ -463,6 +566,171 @@ const getOutletRisk = async (start, end, weekStart, weekEnd, region, channel) =>
     { list: lowList, count: lowCount },
     { list: doubleList, count: doubleCount },
   ];
+};
+
+const getAllNotVisitedOutlets = async (start, end, region, channel, page = 1, limit = 20, search = "") => {
+  const endDt = endPlusOne(end);
+  const es    = getClient();
+ 
+  // Ambil semua customerId yang SUDAH dikunjungi
+  const visitedResp = await search({
+    query: { bool: { filter: baseFilter(start, endDt, region, channel) } },
+    aggs: {
+      visited_ids: {
+        terms: { field: "customerId", size: 65535 },
+      },
+    },
+  });
+ 
+  const visitedSet = new Set(
+    visitedResp.aggregations.visited_ids.buckets.map((b) => b.key)
+  );
+ 
+  // Ambil semua customer aktif dari index customers
+  const custFilter = {
+    bool: {
+      filter: [{ exists: { field: "salesId" } }],
+      must_not: [{ term: { salesId: "" } }],
+    },
+  };
+  if (region && region !== "All") custFilter.bool.filter.push({ term: { region } });
+  if (channel && channel !== "All") custFilter.bool.filter.push({ term: { channel } });
+ 
+  // Scroll / size besar untuk ambil semua — gunakan search_after jika data sangat besar
+  const custResp = await es.search({
+    index: INDEX.CUSTOMERS,
+    body: {
+      size: 10000,
+      query: custFilter,
+      _source: ["custId", "name"],
+      sort: [{ "name.keyword": { order: "asc" } }],
+    },
+  });
+ 
+  let notVisited = custResp.hits.hits
+    .map((h) => ({ customerId: h._source.custId, customerName: h._source.name }))
+    .filter((c) => !visitedSet.has(c.customerId));
+
+  const searchTrimNV = (search || "").trim().toLowerCase();
+  if (searchTrimNV) {
+    notVisited = notVisited.filter(
+      (c) =>
+        c.customerId.toLowerCase().includes(searchTrimNV) ||
+        c.customerName.toLowerCase().includes(searchTrimNV)
+    );
+  }
+ 
+  const totalRows = notVisited.length;
+  const offset    = (page - 1) * limit;
+  const data      = notVisited.slice(offset, offset + limit);
+ 
+  return {
+    data,
+    pagination: {
+      page,
+      limit,
+      totalRows,
+      totalPages: Math.ceil(totalRows / limit),
+    },
+  };
+};
+
+const getAllLowPhotoOutlets = async (start, end, region, channel, page = 1, limit = 20, search = "") => {
+  const endDt = endPlusOne(end);
+ 
+  // Ambil semua bucket outlet dengan foto < 3 (size besar)
+  const resp = await search({
+    query: { bool: { filter: npnFilter(start, endDt, region, channel) } },
+    aggs: {
+      outlets: {
+        terms: { field: "customerId", size: 65535, order: { photos: "asc" } },
+        aggs: {
+          photos: { cardinality: { field: "imageUrl", precision_threshold: 100 } },
+          name:   { terms: { field: "customerName.keyword", size: 1 } },
+          low:    { bucket_selector: { buckets_path: { c: "photos" }, script: "params.c < 3" } },
+        },
+      },
+    },
+  });
+ 
+  let allLow = resp.aggregations.outlets.buckets.map((b) => ({
+    customerId:   b.key,
+    customerName: b.name.buckets[0]?.key || "",
+    totalPhotos:  b.photos.value,
+  }));
+ 
+  // Sudah terurut ASC dari ES, tapi pastikan
+  allLow.sort((a, b) => a.totalPhotos - b.totalPhotos);
+
+  const searchTrimLP = (search || "").trim().toLowerCase();
+  if (searchTrimLP) {
+    allLow = allLow.filter(
+      (c) =>
+        c.customerId.toLowerCase().includes(searchTrimLP) ||
+        c.customerName.toLowerCase().includes(searchTrimLP)
+    );
+  }
+ 
+  const totalRows = allLow.length;
+  const offset    = (page - 1) * limit;
+  const data      = allLow.slice(offset, offset + limit);
+ 
+  return {
+    data,
+    pagination: {
+      page,
+      limit,
+      totalRows,
+      totalPages: Math.ceil(totalRows / limit),
+    },
+  };
+};
+
+const getAllDoubleOutlets = async (start, end, region, channel, page = 1, limit = 20, search = "") => {
+  const endDt = endPlusOne(end);
+ 
+  const resp = await search({
+    query: { bool: { filter: baseFilter(start, endDt, region, channel) } },
+    aggs: {
+      outlets: {
+        terms: { field: "customerId", size: 65535, order: { sales: "desc" } },
+        aggs: {
+          sales: { cardinality: { field: "salesId", precision_threshold: 100 } },
+          name:  { terms: { field: "customerName.keyword", size: 1 } },
+          multi: { bucket_selector: { buckets_path: { c: "sales" }, script: "params.c > 1" } },
+        },
+      },
+    },
+  });
+ 
+  let allDouble = resp.aggregations.outlets.buckets.map((b) => ({
+    customerId:   b.key,
+    customerName: b.name.buckets[0]?.key || "",
+    salesmanCount: b.sales.value,
+  }));
+ 
+  // Sudah terurut DESC dari ES
+  const searchTrimDC = (search || "").trim().toLowerCase();
+  if (searchTrimDC) {
+    allDouble = allDouble.filter(
+      (c) =>
+        c.customerId.toLowerCase().includes(searchTrimDC) ||
+        c.customerName.toLowerCase().includes(searchTrimDC)
+    );
+  }
+  const totalRows = allDouble.length;
+  const offset    = (page - 1) * limit;
+  const data      = allDouble.slice(offset, offset + limit);
+ 
+  return {
+    data,
+    pagination: {
+      page,
+      limit,
+      totalRows,
+      totalPages: Math.ceil(totalRows / limit),
+    },
+  };
 };
 
 const getDailyTrend = async (start, end, prevStart, prevEnd, region, channel) => {
@@ -600,4 +868,8 @@ module.exports = {
   getOutletRisk,
   getDailyTrend,
   getFilters,
+  getAllSalesmanRanking,
+  getAllDoubleOutlets,
+  getAllLowPhotoOutlets,
+  getAllNotVisitedOutlets,
 };
