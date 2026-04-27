@@ -2,9 +2,9 @@ import axios from "axios";
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
-  // headers: {
-  //   "ngrok-skip-browser-warning": "69420",
-  // },
+  headers: {
+    "ngrok-skip-browser-warning": "69420",
+  },
 });
 
 
