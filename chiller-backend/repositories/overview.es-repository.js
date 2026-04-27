@@ -140,9 +140,19 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
   if (region && region !== "All") custFilter.bool.filter.push({ term: { region } });
   if (channel && channel !== "All") custFilter.bool.filter.push({ term: { channel } });
 
-  const totalOutletResp = await es.count({
-    index: INDEX.CUSTOMERS,
-    body: { query: custFilter.bool.filter.length > 0 ? custFilter : { match_all: {} } },
+  const totalOutletResp = await es.search({
+    index: INDEX.VISITS,
+    body: {
+      size: 0,
+      query: {
+        bool: {
+          filter: commonFilters,
+        },
+      },
+      aggs: {
+        total: { cardinality: { field: "customerId", precision_threshold: 40000 } },
+      },
+    },
   });
 
   const totalSalesResp = await es.search({
@@ -167,7 +177,7 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
       recordset: [{
         visitedCurrent: coverResp.aggregations.visitedCurrent.count.value,
         visitedPrev: coverResp.aggregations.visitedPrev.count.value,
-        totalOutlet: totalOutletResp.count,
+        totalOutlet: totalOutletResp.aggregations.total.value,
       }],
     },
     {
