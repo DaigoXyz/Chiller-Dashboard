@@ -10,18 +10,20 @@ const http = axios.create({
 
 export interface StatCard {
   value: number;
-  prevValue: number;
-  changePct: number | null;
-  changeDirection: "up" | "down";
+  prevValue?: number;
+  changePct?: number | null;
+  changeDirection?: "up" | "down";
 }
 
-export interface CoverageOutlet extends StatCard {
+export interface CoverageOutlet {
+  value: number;
   visitedOutlets: number;
   totalOutlets: number;
   targetPct: number;
 }
 
-export interface ActiveSalesman extends StatCard {
+export interface ActiveSalesman {
+  value: number;
   activeCount: number;
   totalCount: number;
 }
@@ -35,13 +37,13 @@ export interface OverviewResponse {
   period: {
     start: string;
     end: string;
-    prevStart: string;
-    prevEnd: string;
+    prevStart?: string;
+    prevEnd?: string;
   };
   statCards: {
-    totalFoto: StatCard;
+    totalFoto: { value: number };
     coverageOutlet: CoverageOutlet;
-    avgFotoPerOutlet: StatCard;
+    avgFotoPerOutlet?: { value: number };
     activeSalesman: ActiveSalesman;
     outletAktif: OutletAktif;
   };

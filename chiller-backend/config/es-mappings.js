@@ -10,6 +10,7 @@ const VISITS_MAPPING = {
       docId: { type: "keyword" },
       visitDate: { type: "date", format: "yyyy-MM-dd" },
       displayType: { type: "keyword" },
+      displayCategory: { type: "keyword" },   // ← POC category (RAK UMUM, COC, etc.)
       customerId: { type: "keyword" },
       customerName: { type: "text", fields: { keyword: { type: "keyword", ignore_above: 256 } } },
       customerStatus: { type: "keyword" },

@@ -1,37 +1,43 @@
 const sqlRepo = require("../repositories/overview.repository");
 const esRepo = require("../repositories/overview.es-repository");
-const { isHealthy, hasDataForRange } = require("../config/elasticsearch");
+const { isHealthy, isMonthReady, waitForMonthIfSyncing, monthNeedsSync } = require("../config/elasticsearch");
 const { syncVisits } = require("../sync/es-sync");
 
-// Dynamic repo: ES when healthy, SQL fallback
-function getRepo() {
-  const useES = isHealthy();
-  if (useES) console.log("  📡 Using Elasticsearch");
-  return useES ? esRepo : sqlRepo;
+/**
+ * Pick repo based on ES health AND whether the month is fully synced.
+ * Falls back to SQL if ES is down OR month data isn't ready yet.
+ */
+function getRepoForMonth(monthKey) {
+  if (!isHealthy()) return sqlRepo;
+  if (!isMonthReady(monthKey)) {
+    console.log(`  🗄️  Month ${monthKey} not ready in ES — using SQL fallback`);
+    return sqlRepo;
+  }
+  console.log("  📡 Using Elasticsearch");
+  return esRepo;
 }
 
-const repo = new Proxy({}, { get(_, prop) { return getRepo()[prop]; } });
-
-// Ensure ES has data for the requested period. If not, sync on-demand from SQL.
-let syncLock = Promise.resolve();
+/**
+ * Trigger a background sync if month isn't synced yet (fire-and-forget).
+ * The current request always uses SQL when month isn't ready.
+ * Next requests will use ES once sync completes.
+ */
 async function ensureEsData(start, end) {
   if (!isHealthy()) return;
-  const has = await hasDataForRange(start, end);
-  if (has) return;
 
-  // Serialize syncs to avoid duplicate work
-  const prev = syncLock;
-  let release;
-  syncLock = new Promise(r => (release = r));
-  await prev;
-  try {
-    // Re-check after waiting (another request may have synced already)
-    const hasNow = await hasDataForRange(start, end);
-    if (!hasNow) {
-      console.log(`🔄 On-demand sync for ${start} → ${end}`);
-      await syncVisits(start, end, { fullRebuild: false });
-    }
-  } finally { release(); }
+  const monthKey = start.slice(0, 7);
+
+  // Already fully synced — nothing to do
+  if (isMonthReady(monthKey)) return;
+
+  // Sync already in progress — don't launch duplicate
+  if (!monthNeedsSync(monthKey)) return;
+
+  // Trigger sync fire-and-forget
+  console.log(`🔄 On-demand sync triggered for ${monthKey} (non-blocking)`);
+  syncVisits(start, end, { fullRebuild: false }).catch(err =>
+    console.error(`❌ On-demand sync failed for ${monthKey}: ${err.message}`)
+  );
 }
 
 function fmt(d) { return d instanceof Date ? d.toISOString().split("T")[0] : String(d); }
@@ -58,8 +64,9 @@ function getCurrentWeekRange() {
 // ─── 1. getOverview ───
 const getOverview = async (start, end, region, channel) => {
   const { prevStart, prevEnd } = getPrevMonthRange(start, end);
+  const monthKey = start.slice(0, 7);
   await ensureEsData(start, end);
-  await ensureEsData(prevStart, prevEnd);
+  const repo = getRepoForMonth(monthKey);
 
   const [r1, r2, r3] = await repo.getOverviewStats(start, end, prevStart, prevEnd, region, channel);
 
@@ -68,45 +75,20 @@ const getOverview = async (start, end, region, channel) => {
   const sales = r3.recordset[0] || {};
 
   const totalFotoCurr = foto.current || 0;
-  const totalFotoPrev = foto.prev || 0;
   const visitedCurr = cover.visitedCurrent || 0;
-  const visitedPrev = cover.visitedPrev || 0;
   const totalOutlet = cover.totalOutlet || 0;
   const activeCurr = sales.activeCurrent || 0;
-  const activePrev = sales.activePrev || 0;
   const totalSalesman = sales.totalSalesman || 0;
 
   const coveragePct = totalOutlet > 0 ? Math.round((visitedCurr / totalOutlet) * 1000) / 10 : 0;
-  const avgFoto = visitedCurr > 0 ? Math.round(totalFotoCurr / visitedCurr) : 0;
-  const avgFotoPrev = visitedPrev > 0 ? Math.round(totalFotoPrev / visitedPrev) : 0;
   const activePct = totalSalesman > 0 ? Math.round((activeCurr / totalSalesman) * 1000) / 10 : 0;
-  const activePrevPct = totalSalesman > 0 ? Math.round((activePrev / totalSalesman) * 1000) / 10 : 0;
 
   return {
-    period: { start, end, prevStart, prevEnd },
+    period: { start, end },
     statCards: {
-      totalFoto: {
-        value: totalFotoCurr, prevValue: totalFotoPrev,
-        changePct: pctChange(totalFotoCurr, totalFotoPrev),
-        changeDirection: totalFotoCurr >= totalFotoPrev ? "up" : "down",
-      },
-      coverageOutlet: {
-        value: coveragePct, prevValue: 80,
-        changePct: Math.round((coveragePct - 80) * 10) / 10,
-        changeDirection: coveragePct >= 80 ? "up" : "down",
-        visitedOutlets: visitedCurr, totalOutlets: totalOutlet, targetPct: 80,
-      },
-      avgFotoPerOutlet: {
-        value: avgFoto, prevValue: avgFotoPrev,
-        changePct: pctChange(avgFoto, avgFotoPrev),
-        changeDirection: avgFoto >= avgFotoPrev ? "up" : "down",
-      },
-      activeSalesman: {
-        value: activePct, prevValue: activePrevPct,
-        changePct: pctChange(activePct, activePrevPct),
-        changeDirection: activePct >= activePrevPct ? "up" : "down",
-        activeCount: activeCurr, totalCount: totalSalesman,
-      },
+      totalFoto: { value: totalFotoCurr },
+      coverageOutlet: { value: coveragePct, visitedOutlets: visitedCurr, totalOutlets: totalOutlet, targetPct: 80 },
+      activeSalesman: { value: activePct, activeCount: activeCurr, totalCount: totalSalesman },
       outletAktif: { value: visitedCurr, totalOutlets: totalOutlet },
     },
   };
@@ -114,7 +96,9 @@ const getOverview = async (start, end, region, channel) => {
 
 // ─── 2. getPerformanceComparison ───
 const getPerformanceComparison = async (start, end, region, channelParam) => {
+  const monthKey = start.slice(0, 7);
   await ensureEsData(start, end);
+  const repo = getRepoForMonth(monthKey);
 
   const [rChannel, rTeam, rBrand, trueBrandTotal] = await Promise.all([
     repo.getPhotoByChannel(start, end, region, channelParam),
@@ -127,7 +111,6 @@ const getPerformanceComparison = async (start, end, region, channelParam) => {
   const team = rTeam.recordset.map(r => ({ team: r.team, totalPhotos: r.totalPhotos, totalStores: r.totalStores }));
   const brand = rBrand.recordset.map(r => ({ brand: r.brand, totalPhotos: r.totalPhotos }));
 
-  // Scale brand totals to match exact distinct photo count
   const sumTop = brand.reduce((s, b) => s + b.totalPhotos, 0);
   let scaled = [], running = 0;
   for (let i = 0; i < brand.length; i++) {
@@ -141,8 +124,11 @@ const getPerformanceComparison = async (start, end, region, channelParam) => {
   return { channel, team, brand: scaled, brandTotal: trueBrandTotal };
 };
 
+// ─── 3. getSalesmanRanking ───
 const getSalesmanRanking = async (start, end, region, channel) => {
+  const monthKey = start.slice(0, 7);
   await ensureEsData(start, end);
+  const repo = getRepoForMonth(monthKey);
   const { top5, bottom5 } = await repo.getSalesmanRanking(start, end, region, channel);
   const mapRow = row => ({
     salesman: row.salesman, team: row.team, totalPhotos: row.totalPhotos,
@@ -152,9 +138,11 @@ const getSalesmanRanking = async (start, end, region, channel) => {
   return { top5: top5.map(mapRow), bottom5: bottom5.map(mapRow) };
 };
 
+// ─── 4. getOutletRisk ───
 const getOutletRisk = async (start, end, weekStart, weekEnd, region, channel) => {
   const week = weekStart && weekEnd ? { weekStart, weekEnd } : getCurrentWeekRange();
   await ensureEsData(start, end);
+  // outlet risk always uses SQL (more accurate for not-visited logic)
   const [rNotVisited, rLowPhoto, rDouble] = await sqlRepo.getOutletRisk(start, end, week.weekStart, week.weekEnd, region, channel);
 
   return {
@@ -168,32 +156,20 @@ const getOutletRisk = async (start, end, weekStart, weekEnd, region, channel) =>
 // ─── 5. getDailyTrend ───
 const getDailyTrend = async (start, end, region, channel) => {
   const { prevStart, prevEnd } = getPrevMonthRange(start, end);
+  const monthKey = start.slice(0, 7);
   await ensureEsData(start, end);
   await ensureEsData(prevStart, prevEnd);
+  const repo = getRepoForMonth(monthKey);
 
-  const [rTrend, trueCurr, truePrev] = await Promise.all([
-    repo.getDailyTrend(start, end, prevStart, prevEnd, region, channel),
-    repo.getTotalDistinctPhotos(start, end, region, channel),
-    repo.getTotalDistinctPhotos(prevStart, prevEnd, region, channel),
-  ]);
+  const [rCurr, rPrev] = await repo.getDailyTrend(start, end, prevStart, prevEnd, region, channel);
 
-  const [rCurr, rPrev] = rTrend;
-  let current = rCurr.recordset.map(r => ({ tgl: fmt(r.tgl), totalPhotos: r.totalPhotos }));
-  let prev = rPrev.recordset.map(r => ({ tgl: fmt(r.tgl), totalPhotos: r.totalPhotos }));
+  // ES repo returns .total inline; SQL repo doesn't — fall back to summing recordset
+  const trueCurr = rCurr.total ?? rCurr.recordset.reduce((s, r) => s + r.totalPhotos, 0);
+  const truePrev = rPrev.total ?? rPrev.recordset.reduce((s, r) => s + r.totalPhotos, 0);
 
-  // Scale daily totals to match exact distinct count
-  const scaleArr = (arr, target) => {
-    const sum = arr.reduce((s, r) => s + r.totalPhotos, 0);
-    let run = 0;
-    for (let i = 0; i < arr.length; i++) {
-      let v = sum > 0 ? Math.round(arr[i].totalPhotos * (target / sum)) : 0;
-      if (i === arr.length - 1) v = target - run;
-      run += v;
-      arr[i].totalPhotos = v;
-    }
-  };
-  scaleArr(current, trueCurr);
-  scaleArr(prev, truePrev);
+  // Return daily data as-is without scaling to preserve sum accuracy
+  const current = rCurr.recordset.map(r => ({ tgl: fmt(r.tgl), totalPhotos: r.totalPhotos }));
+  const prev    = rPrev.recordset.map(r => ({ tgl: fmt(r.tgl), totalPhotos: r.totalPhotos }));
 
   return {
     current, prev,
@@ -206,7 +182,9 @@ const getDailyTrend = async (start, end, region, channel) => {
 const getDailyStats = async (start, end, region, channel) => {
   const endDt = new Date(end); endDt.setDate(endDt.getDate() + 1);
   const endStr = endDt.toISOString().split("T")[0];
+  const monthKey = start.slice(0, 7);
   await ensureEsData(start, end);
+  const repo = getRepoForMonth(monthKey);
 
   const [r1, r2, r3, r4, r5] = await repo.getDailyData(start, end, endStr, region, channel);
   return {
@@ -234,9 +212,7 @@ const withCache = (fn, prefix) => async (...args) => {
   const cacheKey = `${prefix}_${args.join("_")}`;
   if (apiCache.has(cacheKey)) {
     const cached = apiCache.get(cacheKey);
-    if (Date.now() - cached.timestamp < API_CACHE_TTL) {
-      return cached.data;
-    }
+    if (Date.now() - cached.timestamp < API_CACHE_TTL) return cached.data;
   }
   const data = await fn(...args);
   apiCache.set(cacheKey, { timestamp: Date.now(), data });
@@ -244,7 +220,9 @@ const withCache = (fn, prefix) => async (...args) => {
 };
 
 const getAllSalesmanRanking = async (start, end, region, channel, sortBy, page, limit, search = "") => {
+  const monthKey = start.slice(0, 7);
   await ensureEsData(start, end);
+  const repo = getRepoForMonth(monthKey);
   return repo.getAllSalesmanRanking(start, end, region, channel, sortBy, page, limit, search);
 };
 

@@ -41,30 +41,24 @@ function bindCustomerParams(request, region, channel) {
 const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel) => {
   const db = await getPool();
   const endDt = endPlusOne(end);
-  const prevEndDt = endPlusOne(prevEnd);
 
   const filterSql = getCustomerFilter(region, channel);
 
+  // Total Foto: COUNT(DISTINCT imageUrl) where imageUrl LIKE 'https%'
   const qTotalFoto = bindCustomerParams(req(db), region, channel)
-    .input("s",  sql.Date, start).input("e",  sql.Date, endDt)
-    .input("ps", sql.Date, prevStart).input("pe", sql.Date, prevEndDt)
+    .input("s", sql.Date, start).input("e", sql.Date, endDt)
     .query(`
       SELECT
-        COUNT(DISTINCT CASE WHEN t.dtmVisit >= @s  AND t.dtmVisit < @e  THEN ti.szImageUrl END) AS [current],
-        COUNT(DISTINCT CASE WHEN t.dtmVisit >= @ps AND t.dtmVisit < @pe THEN ti.szImageUrl END) AS [prev]
-      FROM SAM_MD_TVisibilityItem ti WITH(NOLOCK)
-      JOIN SAM_MD_TVisibility t  WITH(NOLOCK) ON t.szDocId          = ti.szDocId
-      WHERE t.szDisplayType IN ('Regular','Reguler')
-        AND ti.szImageUrl IS NOT NULL AND ti.szImageUrl <> ''
-        AND ${NPN_EXISTS}
-        AND (
-          (t.dtmVisit >= @s  AND t.dtmVisit < @e)
-          OR (t.dtmVisit >= @ps AND t.dtmVisit < @pe)
-        )
+        COUNT(DISTINCT i.szImageUrl) AS [current]
+      FROM SAM_MD_TVisibility t WITH(NOLOCK)
+      JOIN SAM_MD_TVisibilityItem i WITH(NOLOCK) ON i.szDocId = t.szDocId
+      WHERE i.szImageUrl LIKE 'https%'
+        AND t.dtmVisit >= @s AND t.dtmVisit < @e
         ${filterSql}
       OPTION (MAXDOP 8, RECOMPILE)
     `);
 
+  // Total Toko Aktif: COUNT(DISTINCT customerId yang dikunjungi) + total aktif dari master
   let totalOutletFilter = "";
   let totalOutletJoin = "";
   if (channel && channel !== "All") totalOutletFilter += " AND c2.szCategory_1Desc = @channel";
@@ -76,44 +70,35 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
   }
 
   const qCoverage = bindCustomerParams(req(db), region, channel)
-    .input("s",  sql.Date, start).input("e",  sql.Date, endDt)
-    .input("ps", sql.Date, prevStart).input("pe", sql.Date, prevEndDt)
+    .input("s", sql.Date, start).input("e", sql.Date, endDt)
     .query(`
       SELECT
-        COUNT(DISTINCT CASE WHEN t.dtmVisit >= @s  AND t.dtmVisit < @e  THEN t.szCustomerId END) AS [visitedCurrent],
-        COUNT(DISTINCT CASE WHEN t.dtmVisit >= @ps AND t.dtmVisit < @pe THEN t.szCustomerId END) AS [visitedPrev],
+        COUNT(DISTINCT t.szCustomerId) AS [visitedCurrent],
         (
           SELECT COUNT(DISTINCT c2.szCustId)
           FROM X_VW_SAM_AR_Customer c2 WITH(NOLOCK)
           ${totalOutletJoin}
-          WHERE c2.szActivityStatus IN ('ACT', 'NEW') 
+          WHERE c2.szActivityStatus IN ('ACT', 'NEW')
             AND c2.szStatus IN ('ACT', 'FDE')
             ${totalOutletFilter}
         ) AS [totalOutlet]
       FROM SAM_MD_TVisibility t WITH(NOLOCK)
-      WHERE t.szDisplayType IN ('Regular','Reguler')
-        AND (
-          (t.dtmVisit >= @s  AND t.dtmVisit < @e)
-          OR (t.dtmVisit >= @ps AND t.dtmVisit < @pe)
-        )
+      JOIN SAM_MD_TVisibilityItem i WITH(NOLOCK) ON i.szDocId = t.szDocId
+      WHERE i.szImageUrl LIKE 'https%'
+        AND t.dtmVisit >= @s AND t.dtmVisit < @e
         ${filterSql}
       OPTION (MAXDOP 8, RECOMPILE)
     `);
 
   const qSalesman = bindCustomerParams(req(db), region, channel)
-    .input("s",  sql.Date, start).input("e",  sql.Date, endDt)
-    .input("ps", sql.Date, prevStart).input("pe", sql.Date, prevEndDt)
+    .input("s", sql.Date, start).input("e", sql.Date, endDt)
     .query(`
       SELECT
-        COUNT(DISTINCT CASE WHEN t.dtmVisit >= @s  AND t.dtmVisit < @e  THEN t.szSalesId END) AS [activeCurrent],
-        COUNT(DISTINCT CASE WHEN t.dtmVisit >= @ps AND t.dtmVisit < @pe THEN t.szSalesId END) AS [activePrev],
+        COUNT(DISTINCT t.szSalesId) AS [activeCurrent],
         (SELECT COUNT(DISTINCT szEmployeeId) FROM BOS_PI_Employee WITH(NOLOCK) WHERE bActive = 1) AS [totalSalesman]
       FROM SAM_MD_TVisibility t WITH(NOLOCK)
       WHERE t.szDisplayType IN ('Regular','Reguler')
-        AND (
-          (t.dtmVisit >= @s  AND t.dtmVisit < @e)
-          OR (t.dtmVisit >= @ps AND t.dtmVisit < @pe)
-        )
+        AND t.dtmVisit >= @s AND t.dtmVisit < @e
         ${filterSql}
       OPTION (MAXDOP 8, RECOMPILE)
     `);
@@ -130,13 +115,11 @@ const getTotalDistinctPhotos = async (start, end, region, channel) => {
   const result = await bindCustomerParams(req(db), region, channel)
     .input("s", sql.Date, start).input("e", sql.Date, endDt)
     .query(`
-      SELECT COUNT(DISTINCT ti.szImageUrl) AS [totalPhotos]
+      SELECT COUNT(DISTINCT i.szImageUrl) AS [totalPhotos]
       FROM SAM_MD_TVisibility t WITH(NOLOCK)
-      JOIN SAM_MD_TVisibilityItem ti WITH(NOLOCK) ON ti.szDocId = t.szDocId
-      WHERE t.szDisplayType IN ('Regular','Reguler')
+      JOIN SAM_MD_TVisibilityItem i WITH(NOLOCK) ON i.szDocId = t.szDocId
+      WHERE i.szImageUrl LIKE 'https%'
         AND t.dtmVisit >= @s AND t.dtmVisit < @e
-        AND ti.szImageUrl IS NOT NULL AND ti.szImageUrl <> ''
-        AND ${NPN_EXISTS}
         ${filterSql}
       OPTION (MAXDOP 8, RECOMPILE)
     `);
@@ -152,23 +135,16 @@ const getPhotoByChannel = async (start, end, region, channel) => {
   return bindCustomerParams(req(db), region, channel)
     .input("s", sql.Date, start).input("e", sql.Date, endDt)
     .query(`
-      ;WITH VisitBase AS (
-        SELECT t.szDocId, t.szCustomerId
-        FROM SAM_MD_TVisibility t WITH(NOLOCK)
-        WHERE t.dtmVisit >= @s AND t.dtmVisit < @e
-          AND t.szDisplayType IN ('Regular','Reguler')
-          ${filterSql}
-      )
-      SELECT TOP 20
-        ISNULL(x.szCategory_1Desc, 'Lainnya') AS [channel],
-        COUNT(DISTINCT ti.szImageUrl)          AS [totalPhotos],
-        COUNT(DISTINCT vb.szCustomerId)        AS [totalStores]
-      FROM VisitBase vb
-      JOIN SAM_MD_TVisibilityItem ti WITH(NOLOCK) ON ti.szDocId          = vb.szDocId
-      JOIN X_VW_SAM_AR_Customer   x  WITH(NOLOCK) ON x.szCustId          = vb.szCustomerId
-      WHERE ti.szImageUrl IS NOT NULL AND ti.szImageUrl <> ''
-        AND ${NPN_EXISTS}
-      GROUP BY x.szCategory_1Desc
+      SELECT
+        ISNULL(t.szDisplayCategory, 'Lainnya') AS [channel],
+        COUNT(DISTINCT i.szImageUrl)            AS [totalPhotos],
+        COUNT(DISTINCT t.szCustomerId)          AS [totalStores]
+      FROM SAM_MD_TVisibility t WITH(NOLOCK)
+      JOIN SAM_MD_TVisibilityItem i WITH(NOLOCK) ON i.szDocId = t.szDocId
+      WHERE i.szImageUrl LIKE 'https%'
+        AND t.dtmVisit >= @s AND t.dtmVisit < @e
+        ${filterSql}
+      GROUP BY t.szDisplayCategory
       ORDER BY totalPhotos DESC
       OPTION (MAXDOP 8, RECOMPILE)
     `);
@@ -183,24 +159,17 @@ const getPhotoByTeam = async (start, end, region, channel) => {
   return bindCustomerParams(req(db), region, channel)
     .input("s", sql.Date, start).input("e", sql.Date, endDt)
     .query(`
-      ;WITH VisitBase AS (
-        SELECT t.szDocId, t.szSalesId, t.szCustomerId
-        FROM SAM_MD_TVisibility t WITH(NOLOCK)
-        WHERE t.dtmVisit >= @s AND t.dtmVisit < @e
-          AND t.szDisplayType IN ('Regular','Reguler')
-          ${filterSql}
-      )
       SELECT
         d.szName                        AS [team],
-        COUNT(DISTINCT ti.szImageUrl)   AS [totalPhotos],
-        COUNT(DISTINCT vb.szCustomerId) AS [totalStores]
-      FROM VisitBase vb
-      JOIN SAM_MD_TVisibilityItem ti WITH(NOLOCK) ON ti.szDocId          = vb.szDocId
-      JOIN BOS_PI_Employee        e  WITH(NOLOCK) ON e.szEmployeeId      = vb.szSalesId
-      JOIN BOS_PI_Department      d  WITH(NOLOCK) ON d.szDepartmentId    = e.szDepartmentId
-      WHERE ti.szImageUrl IS NOT NULL AND ti.szImageUrl <> ''
-        AND ${NPN_EXISTS}
-        AND (d.szName LIKE '%Bima%' OR d.szName LIKE '%Arjuna%' OR d.szName LIKE '%Yudistira%')
+        COUNT(DISTINCT i.szImageUrl)    AS [totalPhotos],
+        COUNT(DISTINCT t.szCustomerId)  AS [totalStores]
+      FROM SAM_MD_TVisibility t WITH(NOLOCK)
+      JOIN SAM_MD_TVisibilityItem i WITH(NOLOCK) ON i.szDocId = t.szDocId
+      JOIN BOS_PI_Employee e WITH(NOLOCK) ON e.szEmployeeId = t.szSalesId
+      JOIN BOS_PI_Department d WITH(NOLOCK) ON d.szDepartmentId = e.szDepartmentId
+      WHERE i.szImageUrl LIKE 'https%'
+        AND t.dtmVisit >= @s AND t.dtmVisit < @e
+        ${filterSql}
       GROUP BY d.szName
       ORDER BY totalPhotos DESC
       OPTION (MAXDOP 8, RECOMPILE)
@@ -220,18 +189,17 @@ const getPhotoByBrand = async (start, end, region, channel) => {
         SELECT t.szDocId
         FROM SAM_MD_TVisibility t WITH(NOLOCK)
         WHERE t.dtmVisit >= @s AND t.dtmVisit < @e
-          AND t.szDisplayType IN ('Regular','Reguler')
           ${filterSql}
       )
-      SELECT TOP 10
-        n.szCat1Description AS [brand],
+      SELECT
+        LEFT(n.szCat10Description, CHARINDEX('|', n.szCat10Description + '|') - 1) AS [brand],
         COUNT(DISTINCT ti.szImageUrl) AS [totalPhotos]
       FROM VisitBase vb
       JOIN SAM_MD_TVisibilityItem ti WITH(NOLOCK) ON ti.szDocId = vb.szDocId
       JOIN BOS_NPN n WITH(NOLOCK) ON n.BOSnetszProductId = ti.szProductId
       WHERE ti.szImageUrl IS NOT NULL AND ti.szImageUrl <> ''
-        AND n.szCat1Description IS NOT NULL AND n.szCat1Description <> ''
-      GROUP BY n.szCat1Description
+        AND n.szCat10Description IS NOT NULL AND n.szCat10Description <> ''
+      GROUP BY LEFT(n.szCat10Description, CHARINDEX('|', n.szCat10Description + '|') - 1)
       ORDER BY totalPhotos DESC
       OPTION (MAXDOP 8, RECOMPILE)
     `);
@@ -794,13 +762,11 @@ const getDailyTrend = async (start, end, prevStart, prevEnd, region, channel) =>
       SELECT
         'current'                     AS [period],
         CAST(t.dtmVisit AS DATE)      AS [tgl],
-        COUNT(DISTINCT ti.szImageUrl) AS [totalPhotos]
+        COUNT(DISTINCT i.szImageUrl)  AS [totalPhotos]
       FROM SAM_MD_TVisibility t WITH(NOLOCK)
-      JOIN SAM_MD_TVisibilityItem ti WITH(NOLOCK) ON ti.szDocId          = t.szDocId
+      JOIN SAM_MD_TVisibilityItem i WITH(NOLOCK) ON i.szDocId = t.szDocId
       WHERE t.dtmVisit >= @s AND t.dtmVisit < @e
-        AND t.szDisplayType IN ('Regular','Reguler')
-        AND ti.szImageUrl IS NOT NULL AND ti.szImageUrl <> ''
-        AND ${NPN_EXISTS}
+        AND i.szImageUrl LIKE 'https%'
         ${filterSql}
       GROUP BY CAST(t.dtmVisit AS DATE)
 
@@ -809,13 +775,11 @@ const getDailyTrend = async (start, end, prevStart, prevEnd, region, channel) =>
       SELECT
         'prev'                        AS [period],
         CAST(t.dtmVisit AS DATE)      AS [tgl],
-        COUNT(DISTINCT ti.szImageUrl) AS [totalPhotos]
+        COUNT(DISTINCT i.szImageUrl)  AS [totalPhotos]
       FROM SAM_MD_TVisibility t WITH(NOLOCK)
-      JOIN SAM_MD_TVisibilityItem ti WITH(NOLOCK) ON ti.szDocId          = t.szDocId
+      JOIN SAM_MD_TVisibilityItem i WITH(NOLOCK) ON i.szDocId = t.szDocId
       WHERE t.dtmVisit >= @ps AND t.dtmVisit < @pe
-        AND t.szDisplayType IN ('Regular','Reguler')
-        AND ti.szImageUrl IS NOT NULL AND ti.szImageUrl <> ''
-        AND ${NPN_EXISTS}
+        AND i.szImageUrl LIKE 'https%'
         ${filterSql}
       GROUP BY CAST(t.dtmVisit AS DATE)
 

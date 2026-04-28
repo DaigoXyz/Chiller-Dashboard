@@ -66,12 +66,6 @@ const IconUsers = ({ className = "w-4 h-4" }) => (
     <path strokeLinecap="round" strokeLinejoin="round" d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
   </svg>
 );
-const IconTrendDown = ({ className = "w-4 h-4" }) => (
-  <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-    <polyline strokeLinecap="round" strokeLinejoin="round" points="23 18 13.5 8.5 8.5 13.5 1 6" />
-    <polyline strokeLinecap="round" strokeLinejoin="round" points="17 18 23 18 23 12" />
-  </svg>
-);
 const IconRefresh = ({ className = "w-4 h-4" }) => (
   <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
     <polyline strokeLinecap="round" strokeLinejoin="round" points="23 4 23 10 17 10" />
@@ -684,7 +678,7 @@ function BrandDonutChart({ data, total = 0, loading = false }: BrandDonutChartPr
   return (
     <div className="w-full">
       <p className="text-[10px] sm:text-[11px] font-bold tracking-widest uppercase text-gray-600 mb-2">
-        JUMLAH FOTO PER BRAND
+        JUMLAH FOTO PER PRINCIPAL
       </p>
       <div className="flex gap-2 sm:gap-3">
         <div className="flex-shrink-0" ref={wrapperRef}>
@@ -1194,7 +1188,6 @@ export default function ChillerOverviewPage() {
               iconBg="bg-blue-100" iconColor="text-blue-500"
               label="Total Foto"
               value={stats.totalFoto.value.toLocaleString("id-ID")}
-              trend={{ label: `vs ${prevMonthLabel}`, direction: stats.totalFoto.changeDirection, value: Math.abs(stats.totalFoto.changePct ?? 0).toFixed(1) + "%" }}
             />
             <StatCard
               icon={<IconStore className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />}
@@ -1202,29 +1195,32 @@ export default function ChillerOverviewPage() {
               label="Coverage Outlet"
               value={stats.coverageOutlet.value.toFixed(1) + "%"}
               target={`Target ${stats.coverageOutlet.targetPct}%`}
-              trend={{ direction: stats.coverageOutlet.changeDirection, value: Math.abs(stats.coverageOutlet.changePct ?? 0).toFixed(1) + "%" }}
             />
             <StatCard
               icon={<IconImage className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />}
               iconBg="bg-purple-100" iconColor="text-purple-500"
               label="Avg Foto / Outlet"
-              value={stats.avgFotoPerOutlet.value.toString()}
-              trend={{ label: `vs ${prevMonthLabel}`, direction: stats.avgFotoPerOutlet.changeDirection, value: Math.abs(stats.avgFotoPerOutlet.changePct ?? 0).toFixed(1) + "%" }}
+              value={(() => {
+                const total = stats.totalFoto.value;
+                const outlets = stats.outletAktif?.value;
+                if (!outlets || outlets === 0) return "0";
+                return Math.round(total / outlets).toLocaleString("id-ID");
+              })()}
             />
             <StatCard
               icon={<IconUser className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />}
               iconBg="bg-yellow-100" iconColor="text-yellow-500"
               label="Active Salesman"
               value={stats.activeSalesman.value.toFixed(1) + "%"}
-              trend={{ label: `vs ${prevMonthLabel}`, direction: stats.activeSalesman.changeDirection, value: Math.abs(stats.activeSalesman.changePct ?? 0).toFixed(1) + "%" }}
+              target={`${stats.activeSalesman.activeCount} / ${stats.activeSalesman.totalCount}`}
             />
             <div className="col-span-2 sm:col-span-1">
               <StatCard
                 icon={<IconBuilding className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />}
                 iconBg="bg-cyan-100" iconColor="text-cyan-500"
                 label="Outlet Aktif"
-                value={stats.outletAktif.value.toString()}
-                target={`dari ${stats.outletAktif.totalOutlets} Outlet`}
+                value={stats.outletAktif.value.toLocaleString("id-ID")}
+                target={`dari ${stats.outletAktif.totalOutlets.toLocaleString("id-ID")} Outlet`}
               />
             </div>
           </>
@@ -1262,34 +1258,34 @@ export default function ChillerOverviewPage() {
           subtext: notVisitedPct > 0 ? `${notVisitedCount.toLocaleString("id-ID")} dari ${totalOutlets.toLocaleString("id-ID")} outlet` : undefined,
         };
 
-        const teams  = performanceData?.team ?? [];
-        const bima   = teams.find((t) => t.team?.toLowerCase().includes("bima"));
-        const arjuna = teams.find((t) => t.team?.toLowerCase().includes("arjuna"));
-        let insightTeam = null;
-        if (bima && arjuna && arjuna.totalPhotos > 0) {
-          const diff    = ((bima.totalPhotos - arjuna.totalPhotos) / arjuna.totalPhotos) * 100;
-          const absDiff = Math.abs(diff).toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-          const isAhead = diff >= 0;
-          insightTeam = {
-            icon: <IconUsers />,
-            variant: (isAhead ? "success" : "danger") as any,
-            text: isAhead ? `**Team Bima ${absDiff}% lebih tinggi dibanding Arjuna**` : `**Team Bima ${absDiff}% lebih rendah dibanding Arjuna**`,
-          };
-        }
+        // Coverage vs target 80%
+        const coveragePct = stats?.coverageOutlet?.value ?? 0;
+        const coverageTarget = stats?.coverageOutlet?.targetPct ?? 80;
+        const coverageGap = coveragePct - coverageTarget;
+        const visitedOutletsStr = (stats?.coverageOutlet?.visitedOutlets ?? 0).toLocaleString("id-ID");
+        const totalOutletsStr = (stats?.coverageOutlet?.totalOutlets ?? 0).toLocaleString("id-ID");
+        const insightCoverage = {
+          icon: <IconStore className="w-4 h-4" />,
+          variant: (coveragePct >= coverageTarget ? "success" : "danger") as any,
+          text: `**${coveragePct.toFixed(1)}% coverage (${visitedOutletsStr}/${totalOutletsStr} outlet)**`,
+        };
 
-        const brands = [...(performanceData?.brand ?? [])].sort((a, b) => b.totalPhotos - a.totalPhotos);
-        let insightBrand = null;
-        if (brands.length >= 2 && brands[1].totalPhotos > 0) {
-          const top    = brands[0];
-          const second = brands[1];
+        let insightTeam = null;
+        // Use brand data (from donut chart) instead of team/sales type
+        const principals = [...(performanceData?.brand ?? [])].sort((a, b) => b.totalPhotos - a.totalPhotos);
+        if (principals.length >= 2 && principals[1].totalPhotos > 0) {
+          const top    = principals[0];
+          const second = principals[1];
           const diff    = ((second.totalPhotos - top.totalPhotos) / top.totalPhotos) * 100;
           const absDiff = Math.abs(diff).toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-          insightBrand = {
-            icon: <IconTrendDown />,
+          insightTeam = {
+            icon: <IconUsers />,
             variant: "warning" as any,
             text: `**${second.brand} tertinggal ${absDiff}% dari ${top.brand} dalam jumlah foto**`,
           };
         }
+
+        let insightBrand = null;
 
         const doubleCount = outletRiskData?.doubleCoverage?.total ?? 0;
         const insightDouble = {
@@ -1298,17 +1294,7 @@ export default function ChillerOverviewPage() {
           text: doubleCount > 0 ? `**${doubleCount} outlet terjadi double visit (inefficient)**` : `**Tidak ada double visit bulan ini**`,
         };
 
-        const fotoDir = stats?.totalFoto?.changeDirection ?? "up";
-        const fotoPct = Math.abs(stats?.totalFoto?.changePct ?? 0).toFixed(1);
-        const insightFoto = {
-          icon: fotoDir === "up" ? <IconCheck /> : <IconTrendDown />,
-          variant: (fotoDir === "up" ? "success" : fotoDir === "down" ? "danger" : "warning") as any,
-          text: fotoDir === "up"
-            ? `**Performa foto naik ${fotoPct}% dibanding bulan lalu**`
-            : `**Performa foto turun ${fotoPct}% dibanding bulan lalu**`,
-        };
-
-        const items = [insightNotVisited, insightTeam, insightBrand, insightDouble, insightFoto].filter(Boolean) as any[];
+        const items = [insightNotVisited, insightCoverage, insightTeam, insightDouble].filter(Boolean) as any[];
         return <KeyInsights title="KEY INSIGHTS" items={items} />;
       })()}
 
@@ -1319,13 +1305,13 @@ export default function ChillerOverviewPage() {
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 items-start">
           <HorizBarChart
-            title="JUMLAH FOTO PER CHANNEL"
+            title="JUMLAH FOTO BY POC"
             data={(performanceData?.channel ?? []).map((c) => ({ label: c.channel, value: c.totalPhotos }))}
             color="#3B82F6"
             loading={loadingPerformance}
           />
           <HorizBarChart
-            title="JUMLAH FOTO PER TEAM"
+            title="JUMLAH FOTO PER SALES TYPE"
             data={(performanceData?.team ?? []).map((t) => ({ label: t.team, value: t.totalPhotos }))}
             color="#10B981"
             loading={loadingPerformance}
