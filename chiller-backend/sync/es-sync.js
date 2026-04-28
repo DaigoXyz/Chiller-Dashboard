@@ -1,4 +1,4 @@
-const { getClient, INDEX, markMonthSynced } = require("../config/elasticsearch");
+const { getClient, INDEX, markMonthSynced, beginMonthSync, markMonthFailed, markMonthReady, monthNeedsSync, waitForMonthIfSyncing } = require("../config/elasticsearch");
 const { VISITS_MAPPING, CUSTOMERS_MAPPING } = require("../config/es-mappings");
 const { getPool } = require("../config/db");
 const sql = require("mssql");
@@ -25,6 +25,20 @@ async function ensureIndex(es, indexName, mapping) {
 }
 
 async function syncVisits(startDate, endDate, options = {}) {
+  const monthKey = startDate.slice(0, 7);
+
+  // If already syncing, wait for it instead of launching a duplicate
+  if (!monthNeedsSync(monthKey)) {
+    const ready = await waitForMonthIfSyncing(monthKey);
+    if (ready) {
+      console.log(`⏭️  ${monthKey} already synced/syncing — skipping duplicate sync`);
+      return { synced: 0, skipped: true };
+    }
+  }
+
+  // Claim this month — any concurrent callers will now wait on our promise
+  const { resolve: syncResolve, reject: syncReject } = beginMonthSync(monthKey);
+
   const es = getClient();
   const db = await getPool();
   const endDt = endPlusOne(endDate);
@@ -39,7 +53,6 @@ async function syncVisits(startDate, endDate, options = {}) {
 
   if (fullRebuild) {
     console.log(`🧹 Mark-and-sweep sync started for ${startDate} → ${endDate} (batch: ${syncBatchId})`);
-    // We no longer delete documents at the start to ensure zero-downtime!
   }
 
   const request = db.request().input("s", sql.Date, startDate).input("e", sql.Date, endDt);
@@ -52,6 +65,7 @@ async function syncVisits(startDate, endDate, options = {}) {
       t.szDocId AS [docId],
       CONVERT(varchar, t.dtmVisit, 23) AS [visitDate],
       t.szDisplayType AS [displayType],
+      t.szDisplayCategory AS [displayCategory],
       t.szCustomerId AS [customerId],
       c.szName AS [customerName],
       c.szStatus AS [customerStatus],
@@ -65,7 +79,7 @@ async function syncVisits(startDate, endDate, options = {}) {
       d.szName AS [departmentName],
       ti.szImageUrl AS [imageUrl],
       ti.szProductId AS [productId],
-      n.szCat1Description AS [brandName],
+      n.szCat10Description AS [brandName],
       CASE WHEN n.BOSnetszProductId IS NOT NULL THEN 1 ELSE 0 END AS [isValidNPN]
     FROM SAM_MD_TVisibilityItem ti WITH(NOLOCK)
     JOIN SAM_MD_TVisibility t WITH(NOLOCK) ON t.szDocId = ti.szDocId
@@ -91,6 +105,7 @@ async function syncVisits(startDate, endDate, options = {}) {
         docId: row.docId,
         visitDate: row.visitDate,
         displayType: row.displayType,
+        displayCategory: row.displayCategory || "",
         customerId: row.customerId,
         customerName: row.customerName || "",
         customerStatus: row.customerStatus || "",
@@ -107,7 +122,7 @@ async function syncVisits(startDate, endDate, options = {}) {
         brandName: row.brandName || "",
         isValidNPN: row.isValidNPN === 1,
         syncedAt: new Date().toISOString(),
-        syncBatchId: syncBatchId, // Tag document with current batch ID
+        syncBatchId: syncBatchId,
       },
     ]);
     const bulkResp = await es.bulk({ body, refresh: false });
@@ -133,13 +148,16 @@ async function syncVisits(startDate, endDate, options = {}) {
       }
     });
 
-    request.on("error", reject);
+    request.on("error", (err) => {
+      markMonthFailed(monthKey);
+      syncReject(err);
+      reject(err);
+    });
 
     request.on("done", async () => {
       try {
         if (batch.length > 0) { await flushBatch(batch); indexed += batch.length; }
         
-        // Sweep deleted docs (if fullRebuild, remove docs from this month without current syncBatchId)
         if (fullRebuild) {
           const deleteResp = await es.deleteByQuery({
             index: INDEX.VISITS,
@@ -158,12 +176,18 @@ async function syncVisits(startDate, endDate, options = {}) {
         } else {
           await es.indices.refresh({ index: INDEX.VISITS });
         }
-        
-        markMonthSynced(startDate);
+
+        markMonthReady(monthKey);
+        syncResolve();
+
         const dur = ((Date.now() - t0) / 1000).toFixed(1);
         console.log(`✅ Sync complete: ${indexed} docs in ${dur}s`);
         resolve({ synced: indexed, duration: dur });
-      } catch (err) { reject(err); }
+      } catch (err) {
+        markMonthFailed(monthKey);
+        syncReject(err);
+        reject(err);
+      }
     });
   });
 }

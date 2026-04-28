@@ -1,5 +1,14 @@
 const { getClient, INDEX } = require("../config/elasticsearch");
 
+async function withIndexFallback(fn, fallback = {}) {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err?.meta?.statusCode === 404) return fallback;
+    throw err;
+  }
+}
+
 function endPlusOne(dateStr) {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + 1);
@@ -9,15 +18,25 @@ function endPlusOne(dateStr) {
 function baseFilter(start, endDt, region, channel) {
   const filters = [
     { range: { visitDate: { gte: start, lt: endDt } } },
-    { terms: { displayType: ["Regular", "Reguler"] } },
   ];
   if (region && region !== "All") filters.push({ term: { region } });
   if (channel && channel !== "All") filters.push({ term: { channel } });
   return filters;
 }
 
-function npnFilter(start, endDt, region, channel) {
-  return [...baseFilter(start, endDt, region, channel), { term: { isValidNPN: true } }];
+// Filter foto konsisten: imageUrl starts with https, tanpa Regular/NPN
+function photoFilter(start, endDt, region, channel) {
+  return [...baseFilter(start, endDt, region, channel), { wildcard: { imageUrl: "https*" } }];
+}
+
+// Filter brand: perlu isValidNPN agar bisa group by brandName
+function brandFilter(start, endDt, region, channel) {
+  return [
+    ...baseFilter(start, endDt, region, channel),
+    { wildcard: { imageUrl: "https*" } },
+    { term: { isValidNPN: true } },
+    { exists: { field: "brandName" } },
+  ];
 }
 
 async function search(body) {
@@ -27,78 +46,31 @@ async function search(body) {
 
 const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel) => {
   const endDt = endPlusOne(end);
-  const prevEndDt = endPlusOne(prevEnd);
   const es = getClient();
 
-  const commonFilters = [
-    { terms: { displayType: ["Regular", "Reguler"] } }
-  ];
-  if (region && region !== "All") commonFilters.push({ term: { region } });
-  if (channel && channel !== "All") commonFilters.push({ term: { channel } });
+  const dateRangeFilters = baseFilter(start, endDt, region, channel);
 
+  // Total Foto: cardinality imageUrl starts with https
   const fotoResp = await es.search({
     index: INDEX.VISITS,
     body: {
       size: 0,
-      query: {
-        bool: {
-          filter: [
-            ...commonFilters,
-            { term: { isValidNPN: true } },
-            {
-              bool: {
-                should: [
-                  { range: { visitDate: { gte: start, lt: endDt } } },
-                  { range: { visitDate: { gte: prevStart, lt: prevEndDt } } },
-                ],
-                minimum_should_match: 1,
-              },
-            },
-          ],
-        },
-      },
+      query: { bool: { filter: photoFilter(start, endDt, region, channel) } },
       aggs: {
-        current: {
-          filter: { range: { visitDate: { gte: start, lt: endDt } } },
-          aggs: { count: { cardinality: { field: "imageUrl", precision_threshold: 5000 } } },
-        },
-        prev: {
-          filter: { range: { visitDate: { gte: prevStart, lt: prevEndDt } } },
-          aggs: { count: { cardinality: { field: "imageUrl", precision_threshold: 5000 } } },
-        },
+        current: { cardinality: { field: "imageUrl", precision_threshold: 5000 } },
       },
     },
   });
 
+  // Total Toko (visitedCurrent + totalOutlet): both from visits index with consistent filters
   const coverResp = await es.search({
     index: INDEX.VISITS,
     body: {
       size: 0,
-      query: {
-        bool: {
-          filter: [
-            ...commonFilters,
-            {
-              bool: {
-                should: [
-                  { range: { visitDate: { gte: start, lt: endDt } } },
-                  { range: { visitDate: { gte: prevStart, lt: prevEndDt } } },
-                ],
-                minimum_should_match: 1,
-              },
-            },
-          ],
-        },
-      },
+      query: { bool: { filter: photoFilter(start, endDt, region, channel) } },
       aggs: {
-        visitedCurrent: {
-          filter: { range: { visitDate: { gte: start, lt: endDt } } },
-          aggs: { count: { cardinality: { field: "customerId", precision_threshold: 5000 } } },
-        },
-        visitedPrev: {
-          filter: { range: { visitDate: { gte: prevStart, lt: prevEndDt } } },
-          aggs: { count: { cardinality: { field: "customerId", precision_threshold: 5000 } } },
-        },
+        visitedCurrent: { cardinality: { field: "customerId", precision_threshold: 5000 } },
+        totalOutlet: { cardinality: { field: "customerId", precision_threshold: 5000 } },
       },
     },
   });
@@ -107,59 +79,19 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
     index: INDEX.VISITS,
     body: {
       size: 0,
-      query: {
-        bool: {
-          filter: [
-            ...commonFilters,
-            {
-              bool: {
-                should: [
-                  { range: { visitDate: { gte: start, lt: endDt } } },
-                  { range: { visitDate: { gte: prevStart, lt: prevEndDt } } },
-                ],
-                minimum_should_match: 1,
-              },
-            },
-          ],
-        },
-      },
+      query: { bool: { filter: dateRangeFilters } },
       aggs: {
-        activeCurrent: {
-          filter: { range: { visitDate: { gte: start, lt: endDt } } },
-          aggs: { count: { cardinality: { field: "salesId", precision_threshold: 5000 } } },
-        },
-        activePrev: {
-          filter: { range: { visitDate: { gte: prevStart, lt: prevEndDt } } },
-          aggs: { count: { cardinality: { field: "salesId", precision_threshold: 5000 } } },
-        },
+        activeCurrent: { cardinality: { field: "salesId", precision_threshold: 5000 } },
       },
     },
   });
 
-  const custFilter = { bool: { filter: [] } };
-  if (region && region !== "All") custFilter.bool.filter.push({ term: { region } });
-  if (channel && channel !== "All") custFilter.bool.filter.push({ term: { channel } });
-
-  const totalOutletResp = await es.search({
-    index: INDEX.VISITS,
-    body: {
-      size: 0,
-      query: {
-        bool: {
-          filter: commonFilters,
-        },
-      },
-      aggs: {
-        total: { cardinality: { field: "customerId", precision_threshold: 40000 } },
-      },
-    },
-  });
-
+  // Total salesman: cardinality from visits with date range + filters
   const totalSalesResp = await es.search({
     index: INDEX.VISITS,
     body: {
       size: 0,
-      query: { bool: { filter: commonFilters } },
+      query: { bool: { filter: dateRangeFilters } },
       aggs: {
         total: { cardinality: { field: "salesId", precision_threshold: 5000 } },
       },
@@ -169,21 +101,18 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
   return [
     {
       recordset: [{
-        current: fotoResp.aggregations.current.count.value,
-        prev: fotoResp.aggregations.prev.count.value,
+        current: fotoResp.aggregations.current.value,
       }],
     },
     {
       recordset: [{
-        visitedCurrent: coverResp.aggregations.visitedCurrent.count.value,
-        visitedPrev: coverResp.aggregations.visitedPrev.count.value,
-        totalOutlet: totalOutletResp.aggregations.total.value,
+        visitedCurrent: coverResp.aggregations.visitedCurrent.value,
+        totalOutlet: coverResp.aggregations.totalOutlet.value,
       }],
     },
     {
       recordset: [{
-        activeCurrent: salesResp.aggregations.activeCurrent.count.value,
-        activePrev: salesResp.aggregations.activePrev.count.value,
+        activeCurrent: salesResp.aggregations.activeCurrent.value,
         totalSalesman: totalSalesResp.aggregations.total.value,
       }],
     },
@@ -193,7 +122,7 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
 const getTotalDistinctPhotos = async (start, end, region, channel) => {
   const endDt = endPlusOne(end);
   const resp = await search({
-    query: { bool: { filter: npnFilter(start, endDt, region, channel) } },
+    query: { bool: { filter: photoFilter(start, endDt, region, channel) } },
     aggs: {
       total: { cardinality: { field: "imageUrl", precision_threshold: 5000 } },
     },
@@ -203,11 +132,13 @@ const getTotalDistinctPhotos = async (start, end, region, channel) => {
 
 const getPhotoByChannel = async (start, end, region, channel) => {
   const endDt = endPlusOne(end);
+
   const resp = await search({
-    query: { bool: { filter: npnFilter(start, endDt, region, channel) } },
+    query: { bool: { filter: photoFilter(start, endDt, region, channel) } },
     aggs: {
       channels: {
-        terms: { field: "channel", size: 20, order: { photo_count: "desc" } },
+        // displayCategory = szDisplayCategory = POC category (RAK UMUM, COC, etc.)
+        terms: { field: "displayCategory", size: 20, order: { photo_count: "desc" } },
         aggs: {
           photo_count: { cardinality: { field: "imageUrl", precision_threshold: 5000 } },
           store_count: { cardinality: { field: "customerId", precision_threshold: 5000 } },
@@ -227,24 +158,9 @@ const getPhotoByChannel = async (start, end, region, channel) => {
 
 const getPhotoByTeam = async (start, end, region, channel) => {
   const endDt = endPlusOne(end);
+
   const resp = await search({
-    query: {
-      bool: {
-        filter: [
-          ...npnFilter(start, endDt, region, channel),
-          {
-            bool: {
-              should: [
-                { wildcard: { departmentName: "*Bima*" } },
-                { wildcard: { departmentName: "*Arjuna*" } },
-                { wildcard: { departmentName: "*Yudistira*" } },
-              ],
-              minimum_should_match: 1,
-            },
-          },
-        ],
-      },
-    },
+    query: { bool: { filter: photoFilter(start, endDt, region, channel) } },
     aggs: {
       teams: {
         terms: { field: "departmentName", size: 20, order: { photo_count: "desc" } },
@@ -270,17 +186,13 @@ const getPhotoByBrand = async (start, end, region, channel) => {
   const resp = await search({
     query: {
       bool: {
-        filter: [
-          ...baseFilter(start, endDt, region, channel),
-          { term: { isValidNPN: true } },
-          { exists: { field: "brandName" } },
-        ],
+        filter: brandFilter(start, endDt, region, channel),
         must_not: [{ term: { brandName: "" } }],
       },
     },
     aggs: {
       brands: {
-        terms: { field: "brandName", size: 10, order: { photo_count: "desc" } },
+        terms: { field: "brandName", size: 1000, order: { photo_count: "desc" } },
         aggs: {
           photo_count: { cardinality: { field: "imageUrl", precision_threshold: 5000 } },
         },
@@ -288,11 +200,18 @@ const getPhotoByBrand = async (start, end, region, channel) => {
     },
   });
 
+  // Group by bagian sebelum '|' pertama, sum photo_count
+  const grouped = {};
+  for (const b of resp.aggregations.brands.buckets) {
+    const key = b.key.split("|")[0].trim();
+    if (!key) continue;
+    grouped[key] = (grouped[key] || 0) + b.photo_count.value;
+  }
+
   return {
-    recordset: resp.aggregations.brands.buckets.map((b) => ({
-      brand: b.key,
-      totalPhotos: b.photo_count.value,
-    })),
+    recordset: Object.entries(grouped)
+      .map(([brand, totalPhotos]) => ({ brand, totalPhotos }))
+      .sort((a, b) => b.totalPhotos - a.totalPhotos),
   };
 };
 
@@ -329,21 +248,24 @@ const getSalesmanRanking = async (start, end, region, channel) => {
       const custQuery = { bool: { filter: [] } };
       if (region && region !== "All") custQuery.bool.filter.push({ term: { region } });
       if (channel && channel !== "All") custQuery.bool.filter.push({ term: { channel } });
-      return es.search({
-        index: INDEX.CUSTOMERS,
-        body: {
-          size: 0,
-          query: custQuery,
-          aggs: {
-            salesmen: {
-              terms: { field: "salesId", size: 10000 },
-              aggs: {
-                assigned: { value_count: { field: "custId" } },
+      return withIndexFallback(
+        () => es.search({
+          index: INDEX.CUSTOMERS,
+          body: {
+            size: 0,
+            query: custQuery,
+            aggs: {
+              salesmen: {
+                terms: { field: "salesId", size: 10000 },
+                aggs: {
+                  assigned: { value_count: { field: "custId" } },
+                },
               },
             },
           },
-        },
-      });
+        }),
+        { aggregations: { salesmen: { buckets: [] } } }
+      );
     })(),
   ]);
 
@@ -410,19 +332,22 @@ const getAllSalesmanRanking = async (start, end, region, channel, sortBy = "top"
       const custQuery = { bool: { filter: [] } };
       if (region && region !== "All") custQuery.bool.filter.push({ term: { region } });
       if (channel && channel !== "All") custQuery.bool.filter.push({ term: { channel } });
-      return es.search({
-        index: INDEX.CUSTOMERS,
-        body: {
-          size: 0,
-          query: custQuery,
-          aggs: {
-            salesmen: {
-              terms: { field: "salesId", size: 10000 },
-              aggs: { assigned: { value_count: { field: "custId" } } },
+      return withIndexFallback(
+        () => es.search({
+          index: INDEX.CUSTOMERS,
+          body: {
+            size: 0,
+            query: custQuery,
+            aggs: {
+              salesmen: {
+                terms: { field: "salesId", size: 10000 },
+                aggs: { assigned: { value_count: { field: "custId" } } },
+              },
             },
           },
-        },
-      });
+        }),
+        { aggregations: { salesmen: { buckets: [] } } }
+      );
     })(),
   ]);
  
@@ -494,7 +419,10 @@ const getOutletRisk = async (start, end, weekStart, weekEnd, region, channel) =>
       query: { bool: { filter: baseFilter(start, endDt, region, channel) } },
       aggs: { visited: { cardinality: { field: "customerId", precision_threshold: 10000 } } },
     }),
-    es.count({ index: INDEX.CUSTOMERS, body: { query: custFilter } }),
+    withIndexFallback(
+      () => es.count({ index: INDEX.CUSTOMERS, body: { query: custFilter } }),
+      { count: 0 }
+    ),
   ]);
 
   const visitedCount = visitedResp.aggregations.visited.value;
@@ -565,10 +493,13 @@ const getOutletRisk = async (start, end, weekStart, weekEnd, region, channel) =>
   const doubleCount = doubleResp.aggregations.double_count.outlets.buckets.length;
 
   // Get not-visited list (top 5 names) from customers index
-  const nvResp = await es.search({
-    index: INDEX.CUSTOMERS,
-    body: { size: 5, query: custFilter, _source: ["custId", "name"] },
-  });
+  const nvResp = await withIndexFallback(
+    () => es.search({
+      index: INDEX.CUSTOMERS,
+      body: { size: 5, query: custFilter, _source: ["custId", "name"] },
+    }),
+    { hits: { hits: [] } }
+  );
   const notVisitedList = nvResp.hits.hits.map(h => ({ customerId: h._source.custId, customerName: h._source.name }));
 
   return [
@@ -606,16 +537,18 @@ const getAllNotVisitedOutlets = async (start, end, region, channel, page = 1, li
   if (region && region !== "All") custFilter.bool.filter.push({ term: { region } });
   if (channel && channel !== "All") custFilter.bool.filter.push({ term: { channel } });
  
-  // Scroll / size besar untuk ambil semua — gunakan search_after jika data sangat besar
-  const custResp = await es.search({
-    index: INDEX.CUSTOMERS,
-    body: {
-      size: 10000,
-      query: custFilter,
-      _source: ["custId", "name"],
-      sort: [{ "name.keyword": { order: "asc" } }],
-    },
-  });
+  const custResp = await withIndexFallback(
+    () => es.search({
+      index: INDEX.CUSTOMERS,
+      body: {
+        size: 10000,
+        query: custFilter,
+        _source: ["custId", "name"],
+        sort: [{ "name.keyword": { order: "asc" } }],
+      },
+    }),
+    { hits: { hits: [] } }
+  );
  
   let notVisited = custResp.hits.hits
     .map((h) => ({ customerId: h._source.custId, customerName: h._source.name }))
@@ -743,38 +676,34 @@ const getAllDoubleOutlets = async (start, end, region, channel, page = 1, limit 
   };
 };
 
+// getDailyTrend — 1 ES query for daily histogram + totals for both periods
+// Eliminates 2 extra getTotalDistinctPhotos round-trips from service layer
 const getDailyTrend = async (start, end, prevStart, prevEnd, region, channel) => {
   const endDt = endPlusOne(end);
   const prevEndDt = endPlusOne(prevEnd);
 
-  const commonFilters = [
-    { terms: { displayType: ["Regular", "Reguler"] } }
-  ];
-  if (region && region !== "All") commonFilters.push({ term: { region } });
-  if (channel && channel !== "All") commonFilters.push({ term: { channel } });
-
-  const resp = await search({
-    query: {
+  const sharedFilters = [
+    { wildcard: { imageUrl: "https*" } },
+    ...( region && region !== "All" ? [{ term: { region } }] : [] ),
+    ...( channel && channel !== "All" ? [{ term: { channel } }] : [] ),
+    {
       bool: {
-        filter: [
-          ...commonFilters,
-          { term: { isValidNPN: true } },
-          {
-            bool: {
-              should: [
-                { range: { visitDate: { gte: start, lt: endDt } } },
-                { range: { visitDate: { gte: prevStart, lt: prevEndDt } } },
-              ],
-              minimum_should_match: 1,
-            },
-          },
+        should: [
+          { range: { visitDate: { gte: start, lt: endDt } } },
+          { range: { visitDate: { gte: prevStart, lt: prevEndDt } } },
         ],
+        minimum_should_match: 1,
       },
     },
+  ];
+
+  const resp = await search({
+    query: { bool: { filter: sharedFilters } },
     aggs: {
       current: {
         filter: { range: { visitDate: { gte: start, lt: endDt } } },
         aggs: {
+          total_photos: { cardinality: { field: "imageUrl", precision_threshold: 5000 } },
           daily: {
             date_histogram: { field: "visitDate", calendar_interval: "day" },
             aggs: {
@@ -786,6 +715,7 @@ const getDailyTrend = async (start, end, prevStart, prevEnd, region, channel) =>
       prev: {
         filter: { range: { visitDate: { gte: prevStart, lt: prevEndDt } } },
         aggs: {
+          total_photos: { cardinality: { field: "imageUrl", precision_threshold: 5000 } },
           daily: {
             date_histogram: { field: "visitDate", calendar_interval: "day" },
             aggs: {
@@ -807,15 +737,16 @@ const getDailyTrend = async (start, end, prevStart, prevEnd, region, channel) =>
     totalPhotos: b.photo_count.value,
   }));
 
+  // Return totals inline — service no longer needs separate getTotalDistinctPhotos calls
   return [
-    { recordset: currentBuckets },
-    { recordset: prevBuckets },
+    { recordset: currentBuckets, total: resp.aggregations.current.total_photos.value },
+    { recordset: prevBuckets,    total: resp.aggregations.prev.total_photos.value },
   ];
 };
 
 const getDailyData = async (start, end, endDt, region, channel) => {
   const resp = await search({
-    query: { bool: { filter: npnFilter(start, endDt, region, channel) } },
+    query: { bool: { filter: photoFilter(start, endDt, region, channel) } },
     aggs: {
       daily: {
         date_histogram: { field: "visitDate", calendar_interval: "day" },
