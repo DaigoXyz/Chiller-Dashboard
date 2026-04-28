@@ -1,4 +1,5 @@
 const { getClient, INDEX } = require("../config/elasticsearch");
+const { getPool } = require("../config/db");
 
 async function withIndexFallback(fn, fallback = {}) {
   try {
@@ -47,6 +48,7 @@ async function search(body) {
 const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel) => {
   const endDt = endPlusOne(end);
   const es = getClient();
+  const db = await getPool();
 
   const dateRangeFilters = baseFilter(start, endDt, region, channel);
 
@@ -62,19 +64,30 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
     },
   });
 
-  // Total Toko (visitedCurrent + totalOutlet): both from visits index with consistent filters
-  const coverResp = await es.search({
+  // Visited outlets: distinct customerId yang dikunjungi dengan foto
+  const visitedResp = await es.search({
     index: INDEX.VISITS,
     body: {
       size: 0,
       query: { bool: { filter: photoFilter(start, endDt, region, channel) } },
       aggs: {
         visitedCurrent: { cardinality: { field: "customerId", precision_threshold: 5000 } },
-        totalOutlet: { cardinality: { field: "customerId", precision_threshold: 5000 } },
       },
     },
   });
 
+  // Total outlets: count dari INDEX.CUSTOMERS dengan filter region/channel
+  const custFilter = { bool: { filter: [] } };
+  if (region && region !== "All") custFilter.bool.filter.push({ term: { region } });
+  if (channel && channel !== "All") custFilter.bool.filter.push({ term: { channel } });
+  const custQuery = custFilter.bool.filter.length === 0 ? { match_all: {} } : custFilter;
+
+  const totalOutletResp = await withIndexFallback(
+    () => es.count({ index: INDEX.CUSTOMERS, body: { query: custQuery } }),
+    { count: 0 }
+  );
+
+  // Active salesman from visits during period
   const salesResp = await es.search({
     index: INDEX.VISITS,
     body: {
@@ -86,17 +99,11 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
     },
   });
 
-  // Total salesman: cardinality from visits with date range + filters
-  const totalSalesResp = await es.search({
-    index: INDEX.VISITS,
-    body: {
-      size: 0,
-      query: { bool: { filter: dateRangeFilters } },
-      aggs: {
-        total: { cardinality: { field: "salesId", precision_threshold: 5000 } },
-      },
-    },
-  });
+  // Total salesman from DB (master data, not filtered by region/channel or date)
+  const totalSalesResp = await db.request().query(`
+    SELECT COUNT(DISTINCT szEmployeeId) AS [total] FROM BOS_PI_Employee WITH(NOLOCK) WHERE bActive = 1
+  `);
+  const totalSalesman = totalSalesResp.recordset[0]?.total ?? 0;
 
   return [
     {
@@ -106,14 +113,14 @@ const getOverviewStats = async (start, end, prevStart, prevEnd, region, channel)
     },
     {
       recordset: [{
-        visitedCurrent: coverResp.aggregations.visitedCurrent.value,
-        totalOutlet: coverResp.aggregations.totalOutlet.value,
+        visitedCurrent: visitedResp.aggregations.visitedCurrent.value,
+        totalOutlet: totalOutletResp.count,
       }],
     },
     {
       recordset: [{
         activeCurrent: salesResp.aggregations.activeCurrent.value,
-        totalSalesman: totalSalesResp.aggregations.total.value,
+        totalSalesman: totalSalesman,
       }],
     },
   ];
