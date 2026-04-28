@@ -189,9 +189,7 @@ async function syncCustomers() {
   const rows = result.recordset;
   console.log(`📊 ${rows.length} active customers`);
 
-  const exists = await es.indices.exists({ index: INDEX.CUSTOMERS });
-  if (exists) await es.indices.delete({ index: INDEX.CUSTOMERS });
-  await es.indices.create({ index: INDEX.CUSTOMERS, body: CUSTOMERS_MAPPING });
+  await ensureIndex(es, INDEX.CUSTOMERS, CUSTOMERS_MAPPING);
 
   let indexed = 0;
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
